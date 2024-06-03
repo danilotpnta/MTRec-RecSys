@@ -1,0 +1,17 @@
+dataset:
+  arg:
+    log_path: dataset/data/mini_sample.json
+    video_path: dataset/data/video.json
+    max_length: 32
+    hist_dim: 5 # dummy same as number of candidates
+    cand_dim: 5
+model:
+  # pretrain: NlpHUST/vibert4news-base-cased
+  pretrain: VoVanPhuc/sup-SimCSE-VietNamese-phobert-base
+  hidden: 768
+train:
+  bz_train: 32
+  bz_val: 32
+  device: cuda:0
+  num_epochs: 30
+ckp_dir: weights
