@@ -20,8 +20,4 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
-src/dataloaders/downloads/articles_large_only.zip
-src/dataloaders/downloads/ebnerd_demo.zip
-src/dataloaders/downloads/ebnerd_large.zip
-src/dataloaders/downloads/ebnerd_small.zip
-src/dataloaders/downloads/ebnerd_testset.zip
+src/dataloaders/downloads/
