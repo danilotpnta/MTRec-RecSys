@@ -23,12 +23,22 @@ dependencies = [
     "polars==0.20.8",
     "pyyaml==6.0.1",
     "tqdm",
+    "json-tricks>=3.15.5",
+    # New dependencies from the YAML file:
+    "pandas",  
+    "umap-learn",  
+    "wget", 
+    "plotly==5.20.0",  
+    "pyvi==0.1.1", 
+    "torchmetrics==1.1.2",  
+    "requests", 
+    "sentencepiece", # for XLMRobertaTokenizer
 ]
 
 [project.optional-dependencies]
 # pip install "my_project[extras]"
 # pip install -e .'[notebooks]'
-notebooks = ["transformers", "jupyter"]
+notebooks = ["transformers", "jupyter", "ipykernel"]
 tests = [
     "pytest",
     "transformers>=4.30.0, <4.37.3",
