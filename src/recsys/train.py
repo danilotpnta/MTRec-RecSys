@@ -66,7 +66,7 @@ def main():
                     labels=labels,
                     predictions=output,
                     metric_functions=[
-                        AucScore(),
+                        #AucScore(),
                         MrrScore(),
                         NdcgScore(k=5),
                         NdcgScore(k=10),
