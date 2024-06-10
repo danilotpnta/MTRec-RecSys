@@ -33,7 +33,7 @@ def main():
     model = MTRec(args.hidden_dim)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
-    criterion = torch.nn.CrossEntropyLoss()
+    criterion = torch.nn.BCEWithLogitsLoss()
     steps = 0
     for epoch in range(args.epochs):
         print(f"--- {epoch} / {args.epochs} ---")
