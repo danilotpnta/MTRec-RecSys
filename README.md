@@ -2,38 +2,26 @@
 
 Repository for the course in Recommended Systems at University of Amsterdam 2024
 
-# Contributors
-<p align="left">
-  <img src="https://contributors-img.web.app/image?repo=ebanalyse/ebnerd-benchmark" width = 50/>
-</p>
-
-# Introduction
-Hello there 👋🏽
-
-We recommend to check the repository frequently, as we are updating and documenting it along the way!
-
-## EBNeRD 
-Ekstra Bladet Recommender System repository, created for the RecSys'24 Challenge. 
-
 # Getting Started
-We recommend [conda](https://docs.conda.io/projects/conda/en/latest/glossary.html#conda-environment) for environment management, and [VS Code](https://code.visualstudio.com/) for development. To install the necessart packages and run the example notebook:
+We recommend [conda](https://docs.conda.io/projects/conda/en/latest/glossary.html#conda-environment) for environment management, and [VS Code](https://code.visualstudio.com/) for development. To install the necessary packages and run the example notebook:
 
 ```
-# 1. Create and activate a new conda environment
-conda create -n <environment_name> python=3.11
-conda activate <environment_name>
+# 1. Clone this repo using command line:
+git clone https://github.com/danilotpnta/MTRec-RecSys.git
+cd MTRec-RecSys/
 
-# 2. Clone this repo within VSCode or using command line:
-git clone https://github.com/ebanalyse/ebnerd-benchmark.git
+```
+Make sure you `deactivate` any other environemnt i.e. anaconda. For compatibility, we recommend to use `python 3.11`
+
+Now, let's create a virtual environment (`venv`) and install the dependencies specified in the `pyproject.toml` file.
+
+```
+# 2. Create venv environment:
+python3 -m venv venv
+source  venv/bin/activate
 
 # 3. Install the core ebrec package to the enviroment:
 pip install .
-```
-
-We have experienced issues installing *tensorflow* for M1 Macbooks (```sys_platform == 'darwin'```) when using conda. To avoid this, we suggest to use venv if running on macbooks.
-```
-python3 -m venv venv
-source  venv/bin/activate
 ```
 
 ## Running GPU
