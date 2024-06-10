@@ -38,7 +38,7 @@ def main():
     for epoch in range(args.epochs):
         print(f"--- {epoch} / {args.epochs} ---")
         model.train()
-        '''
+        
         with tqdm(train_dataset) as t:
             for history, candidates, labels in t:
                 history = history.to(device)
@@ -54,7 +54,7 @@ def main():
 
                 t.set_postfix(loss=loss.item())
                 steps = steps + 1
-        '''
+                
         model.eval()
         eval_scores = {"accuracy": 0, "f1": 0}
         with tqdm(val_dataset) as t:
