@@ -4,6 +4,8 @@ import argparse
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 writer = SummaryWriter()
+from ebrec.evaluation.metrics import MetricEvaluator
+from ebrec.evaluation.metrics import AucScore, MrrScore, NdcgScore, LogLossScore, RootMeanSquaredError, AccuracyScore, F1Score
 
 import torch
 
@@ -27,6 +29,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() and args.device=="cuda" else "cpu")
 
     train_dataset = load_data(None, args.data_path, "train", args.embeddings_path)
+    val_dataset = load_data(None, args.data_path, "val", args.embeddings_path)
     model = MTRec(args.hidden_dim)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
@@ -35,6 +38,7 @@ def main():
     for epoch in range(args.epochs):
         print(f"--- {epoch} / {args.epochs} ---")
         model.train()
+        '''
         with tqdm(train_dataset) as t:
             for history, candidates, labels in t:
                 history = history.to(device)
@@ -50,6 +54,25 @@ def main():
 
                 t.set_postfix(loss=loss.item())
                 steps = steps + 1
+        '''
+        model.eval()
+        for history, candidates, labels in val_dataset:
+            output = model(history, candidates)
+            met_eval = MetricEvaluator(
+                labels=labels,
+                predictions=output,
+                metric_functions=[
+                    AucScore(),
+                    MrrScore(),
+                    NdcgScore(k=5),
+                    NdcgScore(k=10),
+                    LogLossScore(),
+                    RootMeanSquaredError(),
+                    AccuracyScore(threshold=0.5),
+                    F1Score(threshold=0.5),
+                ],
+            )
+            print(met_eval.evaluate())
     writer.close()
 
 if __name__ == "__main__":
