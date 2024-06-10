@@ -62,7 +62,7 @@ def main():
                     candidates = candidates.to(device)
                     labels = labels.to(device)
                     output = model(history, candidates)
-                    acc = calculate_accuracy(labels, output)
+                    acc = calculate_accuracy(output, rep, labels)
                     eval_scores["accuracy"] += acc.item()
                     #eval_scores["f1"] += f1_score(labels, output)
             eval_scores["accuracy"] /= len(val_dataset)
