@@ -6,7 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 writer = SummaryWriter()
 from ebrec.evaluation.metrics_protocols import MetricEvaluator
 from ebrec.evaluation.metrics_protocols import AucScore, MrrScore, NdcgScore, LogLossScore, RootMeanSquaredError, AccuracyScore, F1Score
-
+from metrics import binary_accuracy, f1_score
 import torch
 
 
@@ -64,26 +64,13 @@ def main():
                     candidates = candidates.to(device)
                     labels = labels.to(device)
                     output = model(history, candidates)
-                    met_eval = MetricEvaluator(
-                        labels=labels.detach().numpy(),
-                        predictions=output.detach().numpy(),
-                        metric_functions=[
-                            #AucScore(),
-                            #MrrScore(),
-                            #NdcgScore(k=5),
-                            #NdcgScore(k=10),
-                            #LogLossScore(),
-                            #RootMeanSquaredError(),
-                            AccuracyScore(threshold=0.5),
-                            F1Score(threshold=0.5),
-                        ],
-                    )
-                    eval_scores_step = met_eval.evaluate().evaluations
-                    for key in eval_scores:
-                        eval_scores[key] += eval_scores_step[key]
-        for key in eval_scores:
-            eval_scores[key] /= len(val_dataset)
-            writer.add_scalar(f"{key}/val", eval_scores[key], steps)
+                    acc = binary_accuracy(labels, output)
+                    eval_scores["accuracy"] += acc.item()
+                    eval_scores["f1"] += f1_score(labels, output)
+            eval_scores["accuracy"] /= len(val_dataset)
+            eval_scores["f1"] /= len(val_dataset)
+            writer.add_scalar("Accuracy/val", eval_scores["accuracy"], steps)
+            writer.add_scalar("F1/val", eval_scores["f1"], steps)
             writer.flush()
     writer.close()
 
