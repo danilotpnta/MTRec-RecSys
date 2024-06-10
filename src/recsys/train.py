@@ -56,6 +56,7 @@ def main():
                 steps = steps + 1
         '''
         model.eval()
+        eval_scores = {"accuracy": 0, "f1": 0}
         for history, candidates, labels in val_dataset:
             with torch.no_grad():
                 history = history.to(device)
@@ -76,7 +77,13 @@ def main():
                         F1Score(threshold=0.5),
                     ],
                 )
-                print(met_eval.evaluate())
+                eval_scores_step = met_eval.evaluate()
+                for key in eval_scores:
+                    eval_scores[key] += eval_scores_step[key]
+        for key in eval_scores:
+            eval_scores[key] /= len(val_dataset)
+            writer.add_scalar(f"{key}/val", eval_scores[key], steps)
+            writer.flush()
     writer.close()
 
 if __name__ == "__main__":
