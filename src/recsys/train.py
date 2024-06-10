@@ -11,7 +11,7 @@ def arg_list():
     parser.add_argument("--hidden_dim", type=int, default=768)
     parser.add_argument("--bs", "--batch_size", type=int, default=32)
     parser.add_argument("--lr", "--learning_rate", type=float, default=1e-3)
-    parser.add_argument("--wd", "--weight_decay", type=float, default=0.01)
+    parser.add_argument("--wd", "--weight_decay", type=float, default=1e-5)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--data_path", "--data", type=str, default="data")
