@@ -57,7 +57,7 @@ def main():
         '''
         model.eval()
         eval_scores = {"accuracy": 0, "f1": 0}
-        with tqdm(train_dataset) as t:
+        with tqdm(val_dataset) as t:
             for history, candidates, labels in t:
                 with torch.no_grad():
                     history = history.to(device)
