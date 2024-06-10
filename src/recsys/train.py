@@ -65,8 +65,8 @@ def main():
                     labels = labels.to(device)
                     output = model(history, candidates)
                     met_eval = MetricEvaluator(
-                        labels=labels,
-                        predictions=output,
+                        labels=labels.cpu().numpy(),
+                        predictions=output.cpu().numpy(),
                         metric_functions=[
                             #AucScore(),
                             #MrrScore(),
