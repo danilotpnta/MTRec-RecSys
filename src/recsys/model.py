@@ -50,7 +50,7 @@ def apply_softmax_crossentropy(logits, repeats, one_hot_targets):
     # Sum the losses for each segment and divide by the number of true (non-padded) entries
     segment_losses = masked_losses.sum(dim=-1) / mask.sum(dim=-1)
 
-    return segment_losses
+    return segment_losses.mean()
 
 
 
