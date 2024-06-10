@@ -6,7 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 writer = SummaryWriter()
 from ebrec.evaluation.metrics_protocols import MetricEvaluator
 from ebrec.evaluation.metrics_protocols import AucScore, MrrScore, NdcgScore, LogLossScore, RootMeanSquaredError, AccuracyScore, F1Score
-from metrics import binary_accuracy, f1_score
+from recsys.metrics import binary_accuracy, f1_score
 import torch
 
 
