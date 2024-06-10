@@ -2,6 +2,8 @@ from recsys.model import MTRec
 from recsys.dataset import NewsDataset, load_data
 import argparse
 from tqdm import tqdm
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter()
 
 import torch
 
@@ -29,6 +31,7 @@ def main():
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
     criterion = torch.nn.CrossEntropyLoss()
+    steps = 0
     for epoch in range(args.epochs):
         print(f"--- {epoch} / {args.epochs} ---")
         model.train()
@@ -37,7 +40,8 @@ def main():
                 history = history.to(device)
                 candidates = candidates.to(device)
                 labels = labels.to(device)
-
+                writer.add_scalar("Loss/train", loss.item(), steps)
+                writer.flush()
                 optimizer.zero_grad()
                 output = model(history, candidates)
                 loss = criterion(output, labels)
@@ -45,7 +49,8 @@ def main():
                 optimizer.step()
 
                 t.set_postfix(loss=loss.item())
-
+                steps = steps + 1
+    writer.close()
 
 if __name__ == "__main__":
     main()
