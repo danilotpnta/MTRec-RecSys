@@ -193,7 +193,7 @@ class NewsDataset(Dataset):
         candidate_input = torch.tensor(candidate_input)
         y = torch.tensor(batch[DEFAULT_LABELS_COL].explode()).float().view(-1, 1)
         # ========================
-        return history_input, candidate_input, y
+        return history_input, candidate_input, y, repeats
 
 
 def load_data(

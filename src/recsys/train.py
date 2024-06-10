@@ -1,4 +1,4 @@
-from recsys.model import MTRec
+from recsys.model import MTRec, apply_softmax_crossentropy
 from recsys.dataset import NewsDataset, load_data
 import argparse
 from tqdm import tqdm
@@ -6,7 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 writer = SummaryWriter()
 from ebrec.evaluation.metrics_protocols import MetricEvaluator
 from ebrec.evaluation.metrics_protocols import AucScore, MrrScore, NdcgScore, LogLossScore, RootMeanSquaredError, AccuracyScore, F1Score
-from recsys.metrics import binary_accuracy, f1_score
+from recsys.metrics import calculate_accuracy, f1_score
 import torch
 
 
@@ -33,42 +33,40 @@ def main():
     model = MTRec(args.hidden_dim)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
-    criterion = torch.nn.BCEWithLogitsLoss()
     steps = 0
     for epoch in range(args.epochs):
         print(f"--- {epoch} / {args.epochs} ---")
         model.train()
         
         with tqdm(train_dataset) as t:
-            for history, candidates, labels in t:
+            for history, candidates, labels, repeats in t:
                 history = history.to(device)
                 candidates = candidates.to(device)
-                labels = labels.to(device)
+                labels = labels.to(device).flatten()
                 optimizer.zero_grad()
-                output = model(history, candidates)
-                loss = criterion(output, labels)
-                writer.add_scalar("Loss/train", loss.item(), steps)
-                writer.flush()
+                output = model(history, candidates).flatten()
+                loss = apply_softmax_crossentropy(output, repeats, labels)
                 loss.backward()
                 optimizer.step()
-
+                writer.add_scalar("Loss/train", loss.item(), steps)
+                writer.flush()
                 t.set_postfix(loss=loss.item())
                 steps = steps + 1
                 
         model.eval()
         eval_scores = {"accuracy": 0, "f1": 0}
         with tqdm(val_dataset) as t:
-            for history, candidates, labels in t:
+            for history, candidates, labels, rep in t:
                 with torch.no_grad():
                     history = history.to(device)
                     candidates = candidates.to(device)
                     labels = labels.to(device)
                     output = model(history, candidates)
-                    acc = binary_accuracy(labels, output)
+                    acc = calculate_accuracy(labels, output)
                     eval_scores["accuracy"] += acc.item()
-                    eval_scores["f1"] += f1_score(labels, output)
+                    #eval_scores["f1"] += f1_score(labels, output)
             eval_scores["accuracy"] /= len(val_dataset)
-            eval_scores["f1"] /= len(val_dataset)
+            #eval_scores["f1"] /= len(val_dataset)
             writer.add_scalar("Accuracy/val", eval_scores["accuracy"], steps)
             writer.add_scalar("F1/val", eval_scores["f1"], steps)
             writer.flush()
