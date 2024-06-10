@@ -40,11 +40,11 @@ def main():
                 history = history.to(device)
                 candidates = candidates.to(device)
                 labels = labels.to(device)
-                writer.add_scalar("Loss/train", loss.item(), steps)
-                writer.flush()
                 optimizer.zero_grad()
                 output = model(history, candidates)
                 loss = criterion(output, labels)
+                writer.add_scalar("Loss/train", loss.item(), steps)
+                writer.flush()
                 loss.backward()
                 optimizer.step()
 
