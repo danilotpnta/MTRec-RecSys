@@ -1,7 +1,7 @@
 import torch
 
 def binary_accuracy(y_true, y_pred):
-    return torch.mean(y_true == (y_pred > 0.5))
+    return torch.mean((y_true == (y_pred > 0.5)).to(torch.float32))
 
 def f1_score(y_true, y_pred):
     tp = (y_true * y_pred).sum().to(torch.float32)
