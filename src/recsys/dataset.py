@@ -111,7 +111,13 @@ class NewsDataset(Dataset):
                 how="left",
             )
             .select(COLUMNS)
-            .pipe(create_binary_labels_column, seed=42, label_col=DEFAULT_LABELS_COL)
+            .pipe(
+                create_binary_labels_column,
+                seed=42,
+                clicked_col=DEFAULT_CLICKED_ARTICLES_COL,
+                inview_col=DEFAULT_INVIEW_ARTICLES_COL,
+                label_col=DEFAULT_LABELS_COL,
+            )
         ).with_columns(pl.col(DEFAULT_LABELS_COL).list.len().alias(N_SAMPLES_COL))
 
         assert (
@@ -141,7 +147,7 @@ class NewsDataset(Dataset):
         """
         Number of batch steps in the data
         """
-        return int(ceil(self.behaviors.shape[0] / self.batch_size))
+        return ceil(self.behaviors.shape[0] / self.batch_size)
 
     def __getitem__(self, index: int):
         """
@@ -195,6 +201,31 @@ class NewsDataset(Dataset):
         # ========================
         return history_input, candidate_input, y
 
+class NewsDatasetV2(NewsDataset):
+    def __len__(self):
+        return self.data.shape[0]
+    def __getitem__(self, index: int):
+        sample = self.data[index]
+        sample = sample.pipe(
+            map_list_article_id_to_value,
+            behaviors_column=DEFAULT_HISTORY_ARTICLE_ID_COL,
+            mapping=self.lookup_indexes,
+            fill_nulls=[0],
+
+        ).pipe(
+            map_list_article_id_to_value,
+            behaviors_column=DEFAULT_INVIEW_ARTICLES_COL,
+            mapping=self.lookup_indexes,
+            fill_nulls=[0],
+        )
+
+        _history = sample[DEFAULT_HISTORY_ARTICLE_ID_COL].explode().explode().to_list()
+        history = torch.from_numpy(self.lookup_matrix[_history])
+        _candidates = sample[DEFAULT_INVIEW_ARTICLES_COL].explode().explode().to_list()
+        candidates = torch.from_numpy(self.lookup_matrix[_candidates])
+        # dataset.lookup_indexes
+        labels = torch.tensor(sample[DEFAULT_LABELS_COL].to_list()[0])
+        return history, candidates, labels
 
 def load_data(
     tokenizer: Any, data_path: str, split="train", embeddings_path: str = None
