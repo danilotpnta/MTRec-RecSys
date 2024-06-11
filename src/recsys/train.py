@@ -60,8 +60,8 @@ def main():
                 with torch.no_grad():
                     history = history.to(device)
                     candidates = candidates.to(device)
-                    labels = labels.to(device)
-                    output = model(history, candidates)
+                    labels = labels.to(device).flatten()
+                    output = model(history, candidates).flatten()
                     acc = calculate_accuracy(output, rep, labels)
                     eval_scores["accuracy"] += acc.item()
                     #eval_scores["f1"] += f1_score(labels, output)
