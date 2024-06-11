@@ -27,16 +27,12 @@ def calculate_accuracy(logits, repeats, one_hot_targets):
     padded_logits = torch.stack([F.pad(segment, (0, max_len - len(segment)), 'constant', float('-inf')) for segment in split_logits])
     padded_targets = torch.stack([F.pad(segment, (0, max_len - len(segment)), 'constant', 0) for segment in split_targets])
     
-    # Reshape the padded targets to their original shape
-    num_classes = int(one_hot_targets.size(0) / repeats.sum())
-    reshaped_targets = padded_targets.view(-1, num_classes)
-    
     # Apply softmax to logits and get the predicted class
-    softmaxed_logits = F.softmax(padded_logits.view(-1, num_classes), dim=-1)
+    softmaxed_logits = F.softmax(padded_logits, dim=-1)
     predicted_classes = torch.argmax(softmaxed_logits, dim=-1)
     
     # Get true class indices from one-hot targets
-    true_classes = torch.argmax(reshaped_targets, dim=-1)
+    true_classes = torch.argmax(padded_targets, dim=-1)
     
     # Calculate accuracy
     correct_predictions = (predicted_classes == true_classes).float()
