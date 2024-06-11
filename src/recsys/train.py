@@ -33,7 +33,7 @@ def main():
     model = MTRec(args.hidden_dim)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, pct_start=0.1, steps_per_epoch=len(train_dataset), epochs=args.epochs)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, pct_start=0.0, steps_per_epoch=len(train_dataset), epochs=args.epochs)
     steps = 0
     for epoch in range(args.epochs):
         print(f"--- {epoch} / {args.epochs} ---")
