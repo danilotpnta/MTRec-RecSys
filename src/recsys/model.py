@@ -56,7 +56,8 @@ class MTRec(nn.Module):
 
         self.W = nn.Linear(hidden_dim, hidden_dim)
         self.q = nn.Parameter(torch.randn(hidden_dim))
-        self.W_c = nn.Linear(hidden_dim, hidden_dim)
+        self.transformer_hist = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8)
+        self.transformer_cand = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8)
 
     def forward(self, history, candidates):
         '''
@@ -68,14 +69,15 @@ class MTRec(nn.Module):
         '''
 
         # print(f"{candidates.shape=}")
+        history = self.transformer_hist(history)
         att = self.q * F.tanh(self.W(history))
         att_weight = F.softmax(att, dim=1)
         # print(f"{att_weight.shape=}")
 
         user_embedding = torch.sum(history * att_weight, dim = 1)
-        candidates = F.tanh(self.W_c(candidates))
         # print(f"{user_embedding.shape=}")
         # print(f"{user_embedding.unsqueeze(-1).shape=}")
+        candidates = self.transformer_cand(candidates)
         score = torch.bmm(candidates, user_embedding.unsqueeze(-1)) # B x M x 1
         # print(score.shape)
         return score.squeeze(-1)
