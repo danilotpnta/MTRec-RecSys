@@ -228,7 +228,7 @@ class NewsDatasetV2(NewsDataset):
         return history, candidates, labels
 
 def load_data(
-    tokenizer: Any, data_path: str, split="train", embeddings_path: str = None
+    tokenizer: Any, data_path: str, split="train", embeddings_path: str = None, batch_size=32
 ):
     """
     Load the data from the given path and return the dataset.
@@ -261,6 +261,7 @@ def load_data(
         df_history,
         df_articles,
         embeddings_path=embeddings_path,
+        batch_size=batch_size,
     )
 
 

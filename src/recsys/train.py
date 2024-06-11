@@ -28,8 +28,8 @@ def main():
     args = arg_list()
     device = torch.device("cuda" if torch.cuda.is_available() and args.device=="cuda" else "cpu")
 
-    train_dataset = load_data(None, args.data_path, "train", args.embeddings_path)
-    val_dataset = load_data(None, args.data_path, "validation", args.embeddings_path)
+    train_dataset = load_data(None, args.data_path, "train", args.embeddings_path, batch_size=args.bs)
+    val_dataset = load_data(None, args.data_path, "validation", args.embeddings_path, batch_size=args.bs)
     model = MTRec(args.hidden_dim)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
