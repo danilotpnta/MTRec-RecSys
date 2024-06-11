@@ -40,7 +40,7 @@ def calculate_accuracy(logits, repeats, one_hot_targets):
     
     # Calculate accuracy
     correct_predictions = (predicted_classes == true_classes).float()
-    accuracy = correct_predictions.mean().item()
+    accuracy = correct_predictions.mean()
     
     return accuracy
 
