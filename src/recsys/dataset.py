@@ -1,6 +1,8 @@
 import os.path
-from math import ceil
-from typing import Any
+from random import shuffle
+from typing import Any, Literal
+from recsys.utils.classes import PolarsDataFrameWrapper
+from recsys.utils.download import CHALLENGE_DATASET, download_file, unzip_file
 
 import numpy as np
 import polars as pl
@@ -25,9 +27,9 @@ from ebrec.utils._python import (
     create_lookup_dict,
     create_lookup_objects,
     generate_unique_name,
-    repeat_by_list_values_from_matrix,
 )
 from torch.utils.data import Dataset
+from pytorch_lightning import LightningDataModule
 
 COLUMNS = [
     DEFAULT_USER_COL,
@@ -54,43 +56,47 @@ class NewsDataset(Dataset):
         history: pl.DataFrame,
         articles: pl.DataFrame,
         history_size: int = 30,
+        max_labels: int = 5,
         padding_value: int = 0,
         max_length=128,
-        batch_size=32,
         embeddings_path=None,
     ):
         self.behaviors = behaviors
         self.history = history
         self.articles = articles
-
         self.history_size = history_size
         self.padding_value = padding_value
-        self.batch_size = batch_size
 
         # self.tokenizer = tokenizer
         # self.max_length = max_length
+        self.max_labels = max_labels
 
-        # TODO: (Matey:) Decided to instead only use pre-computed embeddings for now. You might want to look into this later down the line and implement custom embeddings (and e.g. train BERT as well).
+        # TODO (Matey): Decided to instead only use pre-computed embeddings for now. You might want to look into this later down the line and implement custom embeddings (and e.g. train BERT as well).
         self.embeddings_path = embeddings_path
 
-        # NOTE: Keep an eye on this if memory issues arise, e.g. if you need lazy loading or something similar.
+        # NOTE: Keep an eye on this if memory issues arise
         self.articles = self.articles.select(
             [
-                DEFAULT_ARTICLE_ID_COL,
-                DEFAULT_TITLE_COL,
-                DEFAULT_BODY_COL,
-                DEFAULT_SUBTITLE_COL,
-                DEFAULT_TOPICS_COL,
-                DEFAULT_CATEGORY_STR_COL,
+                DEFAULT_ARTICLE_ID_COL,  # article_id
+                DEFAULT_TITLE_COL,  # title
+                DEFAULT_BODY_COL,  # body
+                DEFAULT_SUBTITLE_COL,  # subtitle
+                DEFAULT_TOPICS_COL,  # topics
+                DEFAULT_CATEGORY_STR_COL,  # category_str
             ]
         ).collect()
 
         self._process_history()
-        self._set_data()
+        self._prepare_training_data()
 
     def _process_history(self):
         self.history = (
-            self.history.select(DEFAULT_USER_COL, DEFAULT_HISTORY_ARTICLE_ID_COL)
+            self.history.select(
+                [
+                    DEFAULT_USER_COL,  # "user_id"
+                    DEFAULT_HISTORY_ARTICLE_ID_COL,  # article_id_fixed
+                ]
+            )
             .pipe(
                 truncate_history,
                 column=DEFAULT_HISTORY_ARTICLE_ID_COL,
@@ -101,35 +107,33 @@ class NewsDataset(Dataset):
             .collect()
         )
 
-    def _set_data(self):
+    def _prepare_training_data(self):
         self.behaviors = self.behaviors.collect()
+
         self.data: pl.DataFrame = (
             slice_join_dataframes(
-                self.behaviors,
-                self.history,
+                df1=self.behaviors,
+                df2=self.history,
                 on=DEFAULT_USER_COL,
                 how="left",
             )
             .select(COLUMNS)
-            .pipe(
-                create_binary_labels_column,
-                seed=42,
-                clicked_col=DEFAULT_CLICKED_ARTICLES_COL,
-                inview_col=DEFAULT_INVIEW_ARTICLES_COL,
-                label_col=DEFAULT_LABELS_COL,
-            )
-        ).with_columns(pl.col(DEFAULT_LABELS_COL).list.len().alias(N_SAMPLES_COL))
+            .pipe(create_binary_labels_column, seed=42, label_col=DEFAULT_LABELS_COL)
+            .pipe(sort_and_select, n=self.max_labels)
+            .with_columns(pl.col(DEFAULT_LABELS_COL).list.len().alias(N_SAMPLES_COL))
+        )
+
+        self.data = PolarsDataFrameWrapper(self.data)
 
         assert (
             self.embeddings_path is not None
         ), "You need to provide a path to the embeddings file."
-
-        embeddings = pl.scan_parquet(self.embeddings_path)
+        embeddings = pl.read_parquet(self.embeddings_path)
 
         self.articles = (
             self.articles.lazy()
-            .join(embeddings, on=DEFAULT_ARTICLE_ID_COL, how="inner")
-            .rename({embeddings.columns[-1]: DEFAULT_TOKENS_COL})
+            .join(embeddings.lazy(), on=DEFAULT_ARTICLE_ID_COL, how="inner")
+            .rename({"FacebookAI/xlm-roberta-base": DEFAULT_TOKENS_COL})
             .collect()
         )
 
@@ -144,29 +148,23 @@ class NewsDataset(Dataset):
         )
 
     def __len__(self):
-        """
-        Number of batch steps in the data
-        """
-        return ceil(self.behaviors.shape[0] / self.batch_size)
+        return len(self.behaviors)
 
-    def __getitem__(self, index: int):
+    def __getitem__(self, index):
         """
-        Get the batch of samples for the given index.
-
-        Note: The dataset class provides a single index for each iteration. The batching is done internally in this method
-        to utilize and optimize for speed. This can be seen as a mini-batching approach.
+        Get the samples for the given index.
 
         Args:
-            index (int): An integer index.
+            index (int): An integer or a slice index.
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor]: A tuple containing the input features and labels as torch Tensors.
-                Note, the output of the PyTorch DataLoader is (1, *shape), where 1 is the DataLoader's batch_size.
+            history: torch.Tensor: The history input features.
+            candidate: torch.Tensor: The candidate input features.
+            y: torch.Tensor: The target labels.
         """
-        # Clever way to batch the data:
-        batch_indices = range(index * self.batch_size, (index + 1) * self.batch_size)
-        batch = self.data[batch_indices]
 
+        batch = self.data[index]
+        # ========================
         x = (
             batch.drop(DEFAULT_LABELS_COL)
             .pipe(
@@ -183,52 +181,125 @@ class NewsDataset(Dataset):
             )
         )
         # =>
-        repeats = np.array(batch[N_SAMPLES_COL])
+        history_input = self.lookup_matrix[x[DEFAULT_HISTORY_ARTICLE_ID_COL].to_list()]
         # =>
-        history_input = repeat_by_list_values_from_matrix(
-            input_array=x[DEFAULT_HISTORY_ARTICLE_ID_COL].to_list(),
-            matrix=self.lookup_matrix,
-            repeats=repeats,
-        ).squeeze(2)
+        candidate_input = self.lookup_matrix[x[DEFAULT_INVIEW_ARTICLES_COL].to_list()]
         # =>
-        candidate_input = self.lookup_matrix[
-            x[DEFAULT_INVIEW_ARTICLES_COL].explode().to_list()
-        ]
-        # =>
-        history_input = torch.tensor(history_input)
-        candidate_input = torch.tensor(candidate_input)
-        y = torch.tensor(batch[DEFAULT_LABELS_COL].explode()).float().view(-1, 1)
+        history_input = torch.tensor(history_input).squeeze()
+        candidate_input = torch.tensor(candidate_input).squeeze()
+        y = torch.tensor(batch[DEFAULT_LABELS_COL]).squeeze()
         # ========================
-        return history_input, candidate_input, y, repeats
+        return history_input, candidate_input, y
 
-class NewsDatasetV2(NewsDataset):
-    def __len__(self):
-        return self.data.shape[0]
-    def __getitem__(self, index: int):
-        sample = self.data[index]
-        sample = sample.pipe(
-            map_list_article_id_to_value,
-            behaviors_column=DEFAULT_HISTORY_ARTICLE_ID_COL,
-            mapping=self.lookup_indexes,
-            fill_nulls=[0],
 
-        ).pipe(
-            map_list_article_id_to_value,
-            behaviors_column=DEFAULT_INVIEW_ARTICLES_COL,
-            mapping=self.lookup_indexes,
-            fill_nulls=[0],
+class NewsDataModule(LightningDataModule):
+    def __init__(
+        self,
+        data_path: str,
+        tokenizer: Any = None,
+        batch_size: int = 32,
+        history_size: int = 30,
+        max_labels: int = 5,
+        padding_value: int = 0,
+        max_length: int = 128,
+        dataset: Literal["demo", "small", "large", "test"] = "demo",
+        embeddings: Literal[
+            "xlm-roberta-base", "bert-base-cased", "word2vec", "contrastive_vector"
+        ] = "xlm-roberta-base",
+    ):
+        super().__init__()
+        self.tokenizer = tokenizer
+        self.data_path = data_path
+        self.batch_size = batch_size
+        self.history_size = history_size
+        self.max_labels = max_labels
+        self.padding_value = padding_value
+        self.max_length = max_length
+
+        self.dataset = dataset
+        self.embeddings = embeddings
+
+    def prepare_data(self):
+        # Download the dataset
+        url = CHALLENGE_DATASET[self.dataset]
+        savefolder = os.path.join(self.data_path, self.dataset)
+        if not os.path.exists(savefolder):
+            os.makedirs(savefolder, exist_ok=True)
+            filename = download_file(url, os.path.join(savefolder, url.rpartition("/")[-1]))
+            self.data_path = unzip_file(filename, savefolder)
+            os.remove(filename)
+        else:
+            self.data_path = savefolder
+
+        # Download the embeddings
+        embeddings_url = CHALLENGE_DATASET[self.embeddings]
+        embeddings_folder = os.path.join(self.data_path.rpartition('/')[0], self.embeddings)
+        if not os.path.exists(embeddings_folder):
+            os.makedirs(embeddings_folder, exist_ok=True)
+            filename = download_file(
+                embeddings_url, os.path.join(embeddings_folder, embeddings_url.rpartition("/")[-1])
+            )
+            self.embeddings_path = unzip_file(filename, embeddings_folder)
+            os.remove(filename)
+        else:
+            self.embeddings_path = embeddings_folder
+
+        # Find the parquet file
+        for root, dirs, files in os.walk(self.embeddings_path):
+            for file in files:
+                if file.endswith(".parquet"):
+                    self.embeddings_path = os.path.join(root, file)
+                    return
+        raise FileNotFoundError("No parquet file found in the embeddings directory.")
+
+    def setup(self, stage=None):
+        df_behaviors, df_history, df_articles = load_data(self.data_path, split="train")
+        self.train_dataset = NewsDataset(
+            tokenizer=self.tokenizer,
+            behaviors=df_behaviors,
+            history=df_history,
+            articles=df_articles,
+            history_size=self.history_size,
+            max_labels=self.max_labels,
+            padding_value=self.padding_value,
+            max_length=self.max_length,
+            embeddings_path=self.embeddings_path,
         )
 
-        _history = sample[DEFAULT_HISTORY_ARTICLE_ID_COL].explode().explode().to_list()
-        history = torch.from_numpy(self.lookup_matrix[_history])
-        _candidates = sample[DEFAULT_INVIEW_ARTICLES_COL].explode().explode().to_list()
-        candidates = torch.from_numpy(self.lookup_matrix[_candidates])
-        # dataset.lookup_indexes
-        labels = torch.tensor(sample[DEFAULT_LABELS_COL].to_list()[0])
-        return history, candidates, labels
+        df_behaviors, df_history, df_articles = load_data(
+            self.data_path, split="validation"
+        )
+        self.val_dataset = NewsDataset(
+            tokenizer=self.tokenizer,
+            behaviors=df_behaviors,
+            history=df_history,
+            articles=df_articles,
+            history_size=self.history_size,
+            max_labels=self.max_labels,
+            padding_value=self.padding_value,
+            max_length=self.max_length,
+            embeddings_path=self.embeddings_path,
+        )
+
+    def train_dataloader(self):
+        return torch.utils.data.DataLoader(
+            self.train_dataset, batch_size=self.batch_size, shuffle=True
+        )
+
+    def val_dataloader(self):
+        return torch.utils.data.DataLoader(
+            self.val_dataset, batch_size=self.batch_size, shuffle=False
+        )
+
+    def test_dataloader(self):
+        return torch.utils.data.DataLoader(
+            self.val_dataset, batch_size=self.batch_size, shuffle=False
+        )
+
 
 def load_data(
-    tokenizer: Any, data_path: str, split="train", embeddings_path: str = None, batch_size=32
+    data_path: str,
+    split="train",
 ):
     """
     Load the data from the given path and return the dataset.
@@ -241,13 +312,9 @@ def load_data(
         The path to the data.
     split : str, optional
         Split to use (train or validation), by default "train"
-    embeddings_path : str, optional
-        Path to the embeddings file, by default None
-
     Returns
     -------
-    NewsDataset
-        The dataset containing the data.
+    Tuple[LazyFrame, LazyFrame, LazyFrame]
     """
     _data_path = os.path.join(data_path, split)
 
@@ -255,14 +322,7 @@ def load_data(
     df_history = pl.scan_parquet(_data_path + "/history.parquet")
     df_articles = pl.scan_parquet(data_path + "/articles.parquet")
 
-    return NewsDataset(
-        tokenizer,
-        df_behaviors,
-        df_history,
-        df_articles,
-        embeddings_path=embeddings_path,
-        batch_size=batch_size,
-    )
+    return df_behaviors, df_history, df_articles
 
 
 def map_list_article_id_to_value(
@@ -383,4 +443,24 @@ def map_list_article_id_to_value(
         .collect()
         .join(select_column, on=GROUPBY_ID, how="left")
         .drop(GROUPBY_ID)
+    )
+
+
+def sort_and_select(
+    df: pl.DataFrame,
+    n: int = 5,
+    labels_col: str = DEFAULT_LABELS_COL,
+    inview_col: str = DEFAULT_INVIEW_ARTICLES_COL,
+):
+    """Selects the first clicked article and n-1 random articles from the inview articles."""
+    a, b = [], []
+    for i, x in enumerate(df[labels_col]):
+        idx = np.argsort(x)
+        idx = np.concatenate((idx[: n - 1], idx[-1:]))
+        shuffle(idx)
+        a.append(x[idx])
+        b.append(df[inview_col][i][idx])
+
+    return df.with_columns(
+        pl.Series(a).alias(labels_col), pl.Series(b).alias(inview_col)
     )

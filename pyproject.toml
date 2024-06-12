@@ -33,6 +33,7 @@ dependencies = [
     "torchmetrics==1.1.2",  
     "requests", 
     "sentencepiece", # for XLMRobertaTokenizer
+    "lightning"
 ]
 
 [project.optional-dependencies]

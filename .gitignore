@@ -164,3 +164,4 @@ cython_debug/
 data
 .DS_Store
 runs
+lightning_logs

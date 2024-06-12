@@ -1,8 +1,17 @@
+from pytorch_lightning import LightningModule
 import torch
 from torch import nn
 from torch.nn import functional as F
-
-import torch.nn.functional as F
+from ebrec.evaluation.metrics_protocols import MetricEvaluator
+from ebrec.evaluation.metrics_protocols import (
+    AucScore,
+    MrrScore,
+    NdcgScore,
+    LogLossScore,
+    RootMeanSquaredError,
+    AccuracyScore,
+    F1Score,
+)
 
 
 def apply_softmax_crossentropy(logits, repeats, one_hot_targets, epsilon=1e-10):
@@ -109,27 +118,86 @@ class MTRec(nn.Module):
         return reshaped_batch
 
 
-class MultitaskRecommender(nn.Module):
+class MultitaskRecommender(LightningModule):
     """
     The main prediction model for the multi-task recommendation system we implement.
     """
 
-    def __init__(self, hidden_dim, nhead=8, num_layers=4):
-        super(MTRec, self).__init__()
+    def __init__(self, hidden_dim, nhead=8, num_layers=4, lr=1e-3, wd=0.0, **kwargs):
+        super().__init__()
+
+        self.save_hyperparameters()
+
         transformer = nn.TransformerEncoderLayer(
             d_model=hidden_dim, nhead=nhead, batch_first=True
         )
         self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
 
+        self.predictions = []
+        self.labels = []
+        self.metric_evaluator = MetricEvaluator(
+            self.labels,
+            self.predictions,
+            metric_functions=[
+                AucScore(),
+                MrrScore(),
+                NdcgScore(k=10),
+                LogLossScore(),
+                RootMeanSquaredError(),
+                AccuracyScore(),
+                F1Score(),
+            ],
+        )
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(
+            self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
+        )
+
     def forward(self, history, candidates):
         """
-            LEGEND:
-            B - batch size (keep in mind we use an unusual mini-batch approach)
-            H - history size (number of articles in the history, usually 30)
-            D - hidden size (768)
-            history:    B x H x D
-            candidates: B x 1 x D
+        LEGEND:
+        B - batch size (keep in mind we use an unusual mini-batch approach)
+        H - history size (number of articles in the history, usually 30)
+        D - hidden size (768)
+        history:    B x H x D
+        candidates: B x 1 x D
         """
-        user_embedding = self.transformer(history).mean(1)  # B x D
-        scores = torch.bmm(candidates, user_embedding.unsqueeze(-1))
+        print(self.dtype, history.dtype, candidates.dtype)
+        user_embedding = self.transformer(history).mean(1)
+        # Normalization in order to reduce the variance of the dot product
+        scores = torch.bmm(F.normalize(candidates), F.normalize(user_embedding.unsqueeze(-1)))
         return scores.squeeze(-1)
+
+    def training_step(self, batch, batch_idx):
+        history, candidates, labels = batch
+        scores = self(history, candidates)
+        loss = F.binary_cross_entropy_with_logits(scores, labels)
+        self.log("train_loss", loss)
+        return loss
+
+    def on_validation_start(self) -> None:
+        super().on_validation_start()
+
+        self.predictions = []
+        self.labels = []
+
+    def validation_step(self, batch, batch_idx):
+        history, candidates, labels = batch
+        scores = self(history, candidates)
+
+        loss = F.binary_cross_entropy_with_logits(scores, labels)
+        self.log("val_loss", loss)
+
+        self.predictions.append(scores.detach().flatten().numpy())
+        self.labels.append(labels.flatten().numpy())
+
+    def on_validation_end(self) -> None:
+        super().on_validation_end()
+        print(self.predictions)
+        print(self.metric_evaluator.predictions)
+        metrics = self.metric_evaluator.evaluate()
+        self.log_dict(metrics)
+
+    def test_step(self, batch, batch_idx):
+        return self.validation_step(batch, batch_idx)
