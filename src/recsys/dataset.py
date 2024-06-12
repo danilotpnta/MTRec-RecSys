@@ -58,6 +58,7 @@ class NewsDataset(Dataset):
         max_length=128,
         batch_size=32,
         embeddings_path=None,
+        neg_count=5,
     ):
         self.behaviors = behaviors
         self.history = history
@@ -66,6 +67,7 @@ class NewsDataset(Dataset):
         self.history_size = history_size
         self.padding_value = padding_value
         self.batch_size = batch_size
+        self.neg_count = neg_count
 
         # self.tokenizer = tokenizer
         # self.max_length = max_length
@@ -198,8 +200,8 @@ class NewsDataset(Dataset):
         history_input = torch.tensor(history_input)
         candidate_input = torch.tensor(candidate_input)
         y = batch[DEFAULT_LABELS_COL].explode()
-        filter = torch.nonzero(y == 1)[0] + torch.nonzero(y == 0)[:4]
-        y = y[filter]
+        filter = np.random.choice(np.nonzero(y == 1)) + np.random.choice(np.nonzero(y == 0), size=self.neg_count)
+        y = torch.tensor(y[filter]).float()
         candidate_input = candidate_input[filter]
         # ========================
         return history_input, candidate_input, y, repeats
