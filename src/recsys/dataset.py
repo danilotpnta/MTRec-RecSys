@@ -197,7 +197,10 @@ class NewsDataset(Dataset):
         # =>
         history_input = torch.tensor(history_input)
         candidate_input = torch.tensor(candidate_input)
-        y = torch.tensor(batch[DEFAULT_LABELS_COL].explode()).float().view(-1, 1)
+        y = batch[DEFAULT_LABELS_COL].explode()
+        filter = torch.nonzero(y == 1)[0] + torch.nonzero(y == 0)[:4]
+        y = y[filter]
+        candidate_input = candidate_input[filter]
         # ========================
         return history_input, candidate_input, y, repeats
 
