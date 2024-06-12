@@ -48,7 +48,8 @@ def main():
     parser.add_argument(
         "--dataset", type=str, default="demo", choices=CHALLENGE_DATASET.keys()
     )
-    parser.add_argument("--save_dir", type=str, default="dataset/data")
+    parser.add_argument("--save_dir", type=str, default="data")
+    parser.add_argument("--keep_zip", action="store_true")
     args = parser.parse_args()
 
     save_dir = os.path.join(args.save_dir, args.dataset)
@@ -60,8 +61,11 @@ def main():
 
     # Download and unzip the dataset
     zipfile = download_file(url, os.path.join(save_dir, filename))
-
     path = unzip_file(zipfile, save_dir)
+    
+    # Clean-up
+    if not args.keep_zip:
+        os.remove(zipfile)
 
     print(f"Dataset downloaded and saved to {path}")
 
