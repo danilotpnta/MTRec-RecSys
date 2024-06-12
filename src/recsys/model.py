@@ -163,21 +163,22 @@ class MultitaskRecommender(LightningModule):
         history:    B x H x D
         candidates: B x 1 x D
         """
-        print(self.dtype, history.dtype, candidates.dtype)
         user_embedding = self.transformer(history).mean(1)
         # Normalization in order to reduce the variance of the dot product
-        scores = torch.bmm(F.normalize(candidates), F.normalize(user_embedding.unsqueeze(-1)))
+        scores = torch.bmm(
+            F.normalize(candidates), F.normalize(user_embedding.unsqueeze(-1))
+        )
         return scores.squeeze(-1)
 
     def training_step(self, batch, batch_idx):
         history, candidates, labels = batch
         scores = self(history, candidates)
-        loss = F.binary_cross_entropy_with_logits(scores, labels)
-        self.log("train_loss", loss)
+        loss = F.binary_cross_entropy_with_logits(scores, labels.to(self.dtype))
+        self.log("train_loss", loss, prog_bar=True)
         return loss
 
-    def on_validation_start(self) -> None:
-        super().on_validation_start()
+    def on_validation_epoch_start(self) -> None:
+        super().on_validation_epoch_start()
 
         self.predictions = []
         self.labels = []
@@ -186,18 +187,16 @@ class MultitaskRecommender(LightningModule):
         history, candidates, labels = batch
         scores = self(history, candidates)
 
-        loss = F.binary_cross_entropy_with_logits(scores, labels)
-        self.log("val_loss", loss)
+        loss = F.binary_cross_entropy_with_logits(scores, labels.to(self.dtype))
+        self.log("val_loss", loss, prog_bar=True)
 
-        self.predictions.append(scores.detach().flatten().numpy())
-        self.labels.append(labels.flatten().numpy())
+        self.predictions.append(scores.detach().flatten())
+        self.labels.append(labels.flatten())
 
-    def on_validation_end(self) -> None:
-        super().on_validation_end()
-        print(self.predictions)
-        print(self.metric_evaluator.predictions)
+    def on_validation_epoch_end(self) -> None:
+        super().on_validation_epoch_end()
         metrics = self.metric_evaluator.evaluate()
-        self.log_dict(metrics)
+        self.log_dict(metrics.evaluations)
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
