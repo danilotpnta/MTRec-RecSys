@@ -202,12 +202,12 @@ class NewsDataset(Dataset):
         y = batch[DEFAULT_LABELS_COL].explode()
         filter = np.array([np.concatenate((
             np.random.choice(np.nonzero(y[end_idx-repeats[i]:end_idx] == 1)[0], size=(1,)), np.random.choice(np.nonzero(y[end_idx-repeats[i]:end_idx] == 0)[0], size=self.neg_count)
-        )) for i, end_idx in enumerate(np.cumsum(repeats))]).flatten()
+        )) for i, end_idx in enumerate(np.cumsum(repeats))])
         y = torch.tensor(y[filter]).float()
         candidate_input = candidate_input[filter]
         history_input = history_input[filter]
         # ========================
-        return history_input, candidate_input, y, repeats
+        return history_input, candidate_input, y
 
 class NewsDatasetV2(NewsDataset):
     def __len__(self):
