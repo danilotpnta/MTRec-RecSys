@@ -187,7 +187,7 @@ class NewsDataset(Dataset):
         # =>
         history_input = torch.tensor(history_input).squeeze()
         candidate_input = torch.tensor(candidate_input).squeeze()
-        y = torch.tensor(batch[DEFAULT_LABELS_COL]).squeeze()
+        y = torch.tensor(batch[DEFAULT_LABELS_COL], dtype=torch.float32).squeeze()
         # ========================
         return history_input, candidate_input, y
 

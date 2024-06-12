@@ -149,6 +149,11 @@ class MultitaskRecommender(LightningModule):
             ],
         )
 
+        # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
+        # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
+        # Would be good if we can find a rationale for this in the literature.
+        self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.ones(1) * 4)
+
     def configure_optimizers(self):
         return torch.optim.Adam(
             self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
@@ -173,25 +178,27 @@ class MultitaskRecommender(LightningModule):
     def training_step(self, batch, batch_idx):
         history, candidates, labels = batch
         scores = self(history, candidates)
-        loss = F.binary_cross_entropy_with_logits(scores, labels.to(self.dtype))
+
+        loss = self.criterion(scores, labels)
+
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
     def on_validation_epoch_start(self) -> None:
         super().on_validation_epoch_start()
 
-        self.predictions = []
-        self.labels = []
+        self.predictions.clear()
+        self.labels.clear()
 
     def validation_step(self, batch, batch_idx):
         history, candidates, labels = batch
         scores = self(history, candidates)
 
-        loss = F.binary_cross_entropy_with_logits(scores, labels.to(self.dtype))
-        self.log("val_loss", loss, prog_bar=True)
+        loss = self.criterion(scores, labels)
 
-        self.predictions.append(scores.detach().flatten())
-        self.labels.append(labels.flatten())
+        self.log("val_loss", loss, prog_bar=True)
+        self.predictions.append(scores.detach().cpu().flatten().numpy())
+        self.labels.append(labels.detach().cpu().flatten().numpy())
 
     def on_validation_epoch_end(self) -> None:
         super().on_validation_epoch_end()
