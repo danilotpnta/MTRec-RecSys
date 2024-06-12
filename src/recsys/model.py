@@ -17,8 +17,6 @@ def apply_softmax_crossentropy(logits, one_hot_targets, epsilon=1e-10):
     Returns:
         torch.Tensor: The cross-entropy loss for each segment.
     """
-    assert logits.ndim == 1, "Logits should be a flattened array"
-    assert one_hot_targets.ndim == 1, "One-hot targets should be a flattened array"
 
     # Split logits and one-hot targets according to repeats
     #split_logits = torch.split(logits, repeats.tolist())
