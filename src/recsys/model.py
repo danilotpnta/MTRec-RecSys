@@ -4,7 +4,7 @@ from torch.nn import functional as F
 
 import torch.nn.functional as F
 
-def apply_softmax_crossentropy(logits, repeats, one_hot_targets, epsilon=1e-10):
+def apply_softmax_crossentropy(logits, one_hot_targets, epsilon=1e-10):
     """
     Applies softmax and computes the cross-entropy loss for each segment of logits with one-hot encoded targets.
 
@@ -21,25 +21,25 @@ def apply_softmax_crossentropy(logits, repeats, one_hot_targets, epsilon=1e-10):
     assert one_hot_targets.ndim == 1, "One-hot targets should be a flattened array"
 
     # Split logits and one-hot targets according to repeats
-    split_logits = torch.split(logits, repeats.tolist())
-    split_targets = torch.split(one_hot_targets, repeats.tolist())
+    #split_logits = torch.split(logits, repeats.tolist())
+    #split_targets = torch.split(one_hot_targets, repeats.tolist())
 
     # Determine the maximum length for padding
-    max_len = max(repeats)
+    #max_len = max(repeats)
     
     # Pad logits and one-hot targets, then stack them
-    padded_logits = torch.stack([F.pad(segment, (0, max_len - segment.size(0)), 'constant', float('-inf')) for segment in split_logits])
-    padded_targets = torch.stack([F.pad(segment, (0, max_len - segment.size(0)), 'constant', 0) for segment in split_targets])
+    #padded_logits = torch.stack([F.pad(segment, (0, max_len - segment.size(0)), 'constant', float('-inf')) for segment in split_logits])
+    #padded_targets = torch.stack([F.pad(segment, (0, max_len - segment.size(0)), 'constant', 0) for segment in split_targets])
     
     # Apply softmax to logits and add epsilon to avoid NaNs
-    softmaxed_logits = F.softmax(padded_logits, dim=-1)
+    softmaxed_logits = F.softmax(logits, dim=-1)
     log_softmaxed_logits = torch.log(softmaxed_logits + epsilon)
     
     # Calculate cross-entropy loss
-    losses = -torch.sum(padded_targets * log_softmaxed_logits, dim=-1)
+    losses = -torch.sum(one_hot_targets * log_softmaxed_logits, dim=-1)
     
     # Mask out the padded positions
-    mask = (padded_targets.sum(dim=-1) > 0).float()
+    mask = (one_hot_targets.sum(dim=-1) > 0).float()
     masked_losses = losses * mask
     
     # Sum the losses for each segment and divide by the number of true (non-padded) entries

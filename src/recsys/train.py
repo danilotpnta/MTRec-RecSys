@@ -40,13 +40,13 @@ def main():
         model.train()
         
         with tqdm(train_dataset) as t:
-            for history, candidates, labels, repeats in t:
+            for history, candidates, labels in t:
                 history = history.to(device)
                 candidates = candidates.to(device)
                 labels = labels.to(device).flatten()
                 optimizer.zero_grad()
                 output = model(history, candidates).flatten()
-                loss = apply_softmax_crossentropy(output, repeats, labels)
+                loss = apply_softmax_crossentropy(output, labels)
                 loss.backward()
                 optimizer.step()
                 scheduler.step()
@@ -58,13 +58,13 @@ def main():
         model.eval()
         eval_scores = {"accuracy": 0, "f1": 0}
         with tqdm(val_dataset) as t:
-            for history, candidates, labels, rep in t:
+            for history, candidates, labels in t:
                 with torch.no_grad():
                     history = history.to(device)
                     candidates = candidates.to(device)
                     labels = labels.to(device).flatten()
                     output = model(history, candidates).flatten()
-                    acc = calculate_accuracy(output, rep, labels)
+                    acc = calculate_accuracy(output, labels)
                     eval_scores["accuracy"] += acc.item()
                     #eval_scores["f1"] += f1_score(labels, output)
             eval_scores["accuracy"] /= len(val_dataset)
