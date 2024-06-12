@@ -201,9 +201,9 @@ class NewsDataset(Dataset):
         filter = np.array([np.concatenate((
             np.random.choice(np.nonzero(y[end_idx-repeats[i]:end_idx] == 1)[0], size=(1,)), np.random.choice(np.nonzero(y[end_idx-repeats[i]:end_idx] == 0)[0], size=self.neg_count)
         )) for i, end_idx in enumerate(np.cumsum(repeats))])
-        y = torch.tensor(np.take(y,filter)).float()
-        candidate_input = np.take(candidate_input,filter)
-        history_input = np.take(history_input, filter)
+        y = torch.tensor(np.take(y, filter)).float()
+        candidate_input = candidate_input[filter.flatten()]
+        history_input = history_input[filter.flatten()]
         history_input = torch.tensor(history_input)
         candidate_input = torch.tensor(candidate_input)
 

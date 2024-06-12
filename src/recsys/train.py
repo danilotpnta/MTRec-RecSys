@@ -41,8 +41,8 @@ def main():
         
         with tqdm(train_dataset) as t:
             for history, candidates, labels in t:
-                history = history.to(device)
-                candidates = candidates.to(device)
+                history = history.to(device).view(-1, 30, args.hidden_dim)
+                candidates = candidates.to(device).view(-1, args.hidden_dim)
                 labels = labels.to(device)
                 optimizer.zero_grad()
                 output = model(history, candidates)
