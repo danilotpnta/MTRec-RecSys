@@ -201,7 +201,7 @@ class NewsDataset(Dataset):
         candidate_input = torch.tensor(candidate_input)
         y = batch[DEFAULT_LABELS_COL].explode()
         filter = np.concatenate((
-            np.random.choice(np.nonzero(y == 1)[0]), np.random.choice(np.nonzero(y == 0)[0], size=self.neg_count)
+            np.random.choice(np.nonzero(y == 1)[0], size=(1,)), np.random.choice(np.nonzero(y == 0)[0], size=self.neg_count)
         ))
         y = torch.tensor(y[filter]).float()
         candidate_input = candidate_input[filter]
