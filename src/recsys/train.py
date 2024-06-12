@@ -43,9 +43,9 @@ def main():
             for history, candidates, labels in t:
                 history = history.to(device)
                 candidates = candidates.to(device)
-                labels = labels.to(device).flatten()
+                labels = labels.to(device)
                 optimizer.zero_grad()
-                output = model(history, candidates).flatten()
+                output = model(history, candidates)
                 loss = apply_softmax_crossentropy(output, labels)
                 loss.backward()
                 optimizer.step()
