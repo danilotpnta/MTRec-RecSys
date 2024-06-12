@@ -20,6 +20,7 @@ def arg_list():
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--data_path", "--data", type=str, default="data")
     parser.add_argument("--embeddings_path", type=str, default="embeddings")
+    parser.add_argument("--neg_samples", type=int, default=5)
     # ../dataset/data/FacebookAI_xlm_roberta_base/xlm_roberta_base.parquet
     return parser.parse_args()
 
@@ -41,11 +42,11 @@ def main():
         
         with tqdm(train_dataset) as t:
             for history, candidates, labels in t:
-                history = history.to(device).view(-1, 30, args.hidden_dim)
-                candidates = candidates.to(device).view(-1, args.hidden_dim)
+                history = history.to(device)
+                candidates = candidates.to(device)
                 labels = labels.to(device)
                 optimizer.zero_grad()
-                output = model(history, candidates)
+                output = model(history, candidates).view(-1, args.neg_samples + 1)
                 loss = apply_softmax_crossentropy(output, labels)
                 loss.backward()
                 optimizer.step()
