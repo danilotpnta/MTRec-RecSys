@@ -205,6 +205,7 @@ class NewsDataset(Dataset):
         )) for i, end_idx in enumerate(np.cumsum(repeats))]).flatten()
         y = torch.tensor(y[filter]).float()
         candidate_input = candidate_input[filter]
+        history_input = history_input[filter]
         # ========================
         return history_input, candidate_input, y, repeats
 
