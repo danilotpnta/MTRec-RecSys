@@ -56,8 +56,10 @@ class MTRec(nn.Module):
 
         self.W = nn.Linear(hidden_dim, hidden_dim)
         self.q = nn.Parameter(torch.randn(hidden_dim))
-        self.transformer_hist = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8)
-        self.transformer_cand = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8)
+        self.transformer_hist_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8)
+        self.transformer_cand_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8)
+        self.transformer_hist = nn.TransformerEncoder(self.transformer_hist_layer, num_layers=2)
+        self.transformer_cand = nn.TransformerEncoder(self.transformer_cand_layer, num_layers=2)
 
     def forward(self, history, candidates):
         '''
