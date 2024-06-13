@@ -165,3 +165,4 @@ data
 .DS_Store
 runs
 lightning_logs
+*.out

@@ -13,6 +13,9 @@ from ebrec.evaluation.metrics_protocols import (
     F1Score,
 )
 
+# Setting to get more matmul performance on Tensor Core capable machines.
+torch.set_float32_matmul_precision('medium')
+
 
 def apply_softmax_crossentropy(logits, repeats, one_hot_targets, epsilon=1e-10):
     """
@@ -197,8 +200,8 @@ class MultitaskRecommender(LightningModule):
         loss = self.criterion(scores, labels)
 
         self.log("val_loss", loss, prog_bar=True)
-        self.predictions.append(scores.detach().cpu().flatten().numpy())
-        self.labels.append(labels.detach().cpu().flatten().numpy())
+        self.predictions.append(scores.detach().cpu().flatten().float().numpy())
+        self.labels.append(labels.detach().cpu().flatten().float().numpy())
 
     def on_validation_epoch_end(self) -> None:
         super().on_validation_epoch_end()
