@@ -82,7 +82,7 @@ class MTRec(nn.Module):
         # print(f"{user_embedding.unsqueeze(-1).shape=}")
         #candidates = self.norm2(candidates + self.W_cand2(self.layer_norm(self.dropout(F.relu(self.W_cand(candidates))))))
 
-        score = torch.bmm(candidates, user_embedding.unsqueeze(-1)) # B x M x 1
+        score = torch.bmm(candidates, user_embedding.unsqueeze(-1))/torch.sqrt(candidates.size(-1)) # B x M x 1
         # print(score.shape)
         return score.squeeze(-1)
 
