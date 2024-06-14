@@ -135,7 +135,9 @@ class MultitaskRecommender(LightningModule):
             d_model=hidden_dim, nhead=nhead, batch_first=True
         )
         self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
-
+        self.W = nn.Linear(hidden_dim, hidden_dim)
+        self.q = nn.Parameter(torch.randn(hidden_dim))
+        
         self.predictions = []
         self.labels = []
         self.metric_evaluator = MetricEvaluator(
@@ -188,11 +190,15 @@ class MultitaskRecommender(LightningModule):
         history:    B x H x D
         candidates: B x 1 x D
         """
-        # Experiment along with: self.W, self.q
         # Implement a baseline: LinearRegression, SVM?
         # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
         # Maybe integrate our own BERT and finetune it? 
-        user_embedding = self.transformer(history).mean(1)
+
+        # user_embedding = self.transformer(history).mean(1)
+        att = self.q * F.tanh(self.W(history))
+        att_weight = F.softmax(att, dim=1)
+        user_embedding = torch.sum(history * att_weight, dim=1)
+
         # Normalization in order to reduce the variance of the dot product
         scores = torch.bmm(
             F.normalize(candidates), F.normalize(user_embedding.unsqueeze(-1))
