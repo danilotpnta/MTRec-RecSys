@@ -123,8 +123,6 @@ class NewsDataset(Dataset):
             .with_columns(pl.col(DEFAULT_LABELS_COL).list.len().alias(N_SAMPLES_COL))
         )
 
-        self.data = PolarsDataFrameWrapper(self.data)
-
         assert (
             self.embeddings_path is not None
         ), "You need to provide a path to the embeddings file."
@@ -146,6 +144,23 @@ class NewsDataset(Dataset):
         self.lookup_indexes, self.lookup_matrix = create_lookup_objects(
             article_dict, unknown_representation="zeros"
         )
+        
+        # self.lookup_indexes = {i: val.item() for i, val in self.lookup_indexes.items()}
+        self.data = self.data.pipe(
+            map_list_article_id_to_value,
+            behaviors_column=DEFAULT_HISTORY_ARTICLE_ID_COL,
+            mapping=self.lookup_indexes,
+            fill_nulls=[0],
+        ).pipe(
+            map_list_article_id_to_value,
+            behaviors_column=DEFAULT_INVIEW_ARTICLES_COL,
+            mapping=self.lookup_indexes,
+            fill_nulls=[0],
+        )
+        
+        self.data = PolarsDataFrameWrapper(self.data)
+
+        
 
     def __len__(self):
         return len(self.behaviors)
@@ -164,26 +179,8 @@ class NewsDataset(Dataset):
         """
 
         batch = self.data[index]
-        # ========================
-        x = (
-            batch.drop(DEFAULT_LABELS_COL)
-            .pipe(
-                map_list_article_id_to_value,
-                behaviors_column=DEFAULT_HISTORY_ARTICLE_ID_COL,
-                mapping=self.lookup_indexes,
-                fill_nulls=[0],
-            )
-            .pipe(
-                map_list_article_id_to_value,
-                behaviors_column=DEFAULT_INVIEW_ARTICLES_COL,
-                mapping=self.lookup_indexes,
-                fill_nulls=[0],
-            )
-        )
-        # =>
-        history_input = self.lookup_matrix[x[DEFAULT_HISTORY_ARTICLE_ID_COL].to_list()]
-        # =>
-        candidate_input = self.lookup_matrix[x[DEFAULT_INVIEW_ARTICLES_COL].to_list()]
+        history_input = self.lookup_matrix[batch[DEFAULT_HISTORY_ARTICLE_ID_COL].to_list()]
+        candidate_input = self.lookup_matrix[batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()]
         # =>
         history_input = torch.tensor(history_input).squeeze()
         candidate_input = torch.tensor(candidate_input).squeeze()
