@@ -30,6 +30,7 @@ from ebrec.utils._python import (
 )
 from torch.utils.data import Dataset
 from pytorch_lightning import LightningDataModule
+import json
 
 COLUMNS = [
     DEFAULT_USER_COL,
@@ -61,12 +62,14 @@ class NewsDataset(Dataset):
         padding_value: int = 0,
         max_length=128,
         embeddings_path=None,
+        neg_count=5,
     ):
         self.behaviors = behaviors
         self.history = history
         self.articles = articles
         self.history_size = history_size
         self.padding_value = padding_value
+        self.neg_count = neg_count
 
         # self.tokenizer = tokenizer
         # self.max_length = max_length
@@ -85,14 +88,57 @@ class NewsDataset(Dataset):
                 DEFAULT_TOPICS_COL,  # topics
                 DEFAULT_CATEGORY_STR_COL,  # category_str
             ]
-        ).collect()
+        )
 
-        self._process_history()
-        self._prepare_training_data()
+        self.history = self._process_history(self.history, history_size, padding_value)
 
-    def _process_history(self):
-        self.history = (
-            self.history.select(
+        # TODO (Matey): Decided to instead only use pre-computed embeddings for now. You might want to look into this later down the line and implement custom embeddings (and e.g. train BERT as well).
+        self._prepare_training_data(embeddings_path)
+
+    # @staticmethod
+    # def from_preprocessed(path):
+
+    def save_preprocessed(self, path: str):
+        """Save the preprocessed data to the given path directory."""
+        data = {
+            "history_size": self.history_size,
+            "padding_value": self.padding_value,
+            "max_labels": self.max_labels,
+        }
+
+        np.save(path + "/lookup_matrix.npy", self.lookup_matrix)
+        with open(path + "/parameters.json", "w") as f:
+            json.dump(data, f)
+        self.behaviors.write_parquet(path + "/behaviors.parquet")
+        self.history.write_parquet(path + "/history.parquet")
+        self.articles.write_parquet(path + "/articles.parquet")
+        self.data.dataframe.write_parquet(path + "/data.parquet")
+
+    @staticmethod
+    def from_preprocessed(path: str):
+        """Load the preprocessed data from the given path directory."""
+        dataset = NewsDataset.__new__(NewsDataset)
+        with open(path + "/parameters.json", "r") as f:
+            data = json.load(f)
+            dataset.history_size = data["history_size"]
+            dataset.padding_value = data["padding_value"]
+            dataset.max_labels = data["max_labels"]
+
+        dataset.lookup_matrix = np.load(path + "/lookup_matrix.npy")
+
+        dataset.behaviors = pl.read_parquet(path + "/behaviors.parquet")
+        dataset.history = pl.read_parquet(path + "/history.parquet")
+        dataset.articles = pl.read_parquet(path + "/articles.parquet")
+        dataset.data = PolarsDataFrameWrapper(pl.read_parquet(path + "/data.parquet"))
+
+        return dataset
+
+    @classmethod
+    def _process_history(
+        cls, history: pl.LazyFrame, history_size: int = 30, padding_value: int = 0
+    ) -> pl.DataFrame:
+        return (
+            history.select(
                 [
                     DEFAULT_USER_COL,  # "user_id"
                     DEFAULT_HISTORY_ARTICLE_ID_COL,  # article_id_fixed
@@ -101,17 +147,17 @@ class NewsDataset(Dataset):
             .pipe(
                 truncate_history,
                 column=DEFAULT_HISTORY_ARTICLE_ID_COL,
-                history_size=self.history_size,
-                padding_value=self.padding_value,
+                history_size=history_size,
+                padding_value=padding_value,
                 enable_warning=False,
             )
-            .collect()
+            
         )
 
-    def _prepare_training_data(self):
+    def _prepare_training_data(self, embeddings_path=None):
         self.behaviors = self.behaviors.collect()
 
-        self.data: pl.DataFrame = (
+        self.data = (
             slice_join_dataframes(
                 df1=self.behaviors,
                 df2=self.history,
@@ -127,14 +173,14 @@ class NewsDataset(Dataset):
         self.data = PolarsDataFrameWrapper(self.data)
 
         assert (
-            self.embeddings_path is not None
+            embeddings_path is not None
         ), "You need to provide a path to the embeddings file."
-        embeddings = pl.read_parquet(self.embeddings_path)
+        embeddings = pl.read_parquet(embeddings_path)
 
         self.articles = (
             self.articles.lazy()
             .join(embeddings.lazy(), on=DEFAULT_ARTICLE_ID_COL, how="inner")
-            .rename({"FacebookAI/xlm-roberta-base": DEFAULT_TOKENS_COL})
+            .rename({embeddings.columns[-1]: DEFAULT_TOKENS_COL})
             .collect()
         )
 
@@ -147,6 +193,21 @@ class NewsDataset(Dataset):
         self.lookup_indexes, self.lookup_matrix = create_lookup_objects(
             article_dict, unknown_representation="zeros"
         )
+
+        # self.lookup_indexes = {i: val.item() for i, val in self.lookup_indexes.items()}
+        self.data = self.data.pipe(
+            map_list_article_id_to_value,
+            behaviors_column=DEFAULT_HISTORY_ARTICLE_ID_COL,
+            mapping=self.lookup_indexes,
+            fill_nulls=[0],
+        ).pipe(
+            map_list_article_id_to_value,
+            behaviors_column=DEFAULT_INVIEW_ARTICLES_COL,
+            mapping=self.lookup_indexes,
+            fill_nulls=[0],
+        )
+
+        self.data = PolarsDataFrameWrapper(self.data)
 
     def __len__(self):
         return len(self.behaviors)
@@ -166,25 +227,13 @@ class NewsDataset(Dataset):
 
         batch = self.data[index]
         # ========================
-        x = (
-            batch.drop(DEFAULT_LABELS_COL)
-            .pipe(
-                map_list_article_id_to_value,
-                behaviors_column=DEFAULT_HISTORY_ARTICLE_ID_COL,
-                mapping=self.lookup_indexes,
-                fill_nulls=[0],
-            )
-            .pipe(
-                map_list_article_id_to_value,
-                behaviors_column=DEFAULT_INVIEW_ARTICLES_COL,
-                mapping=self.lookup_indexes,
-                fill_nulls=[0],
-            )
-        )
         # =>
-        history_input = self.lookup_matrix[x[DEFAULT_HISTORY_ARTICLE_ID_COL].to_list()]
-        # =>
-        candidate_input = self.lookup_matrix[x[DEFAULT_INVIEW_ARTICLES_COL].to_list()]
+        history_input = self.lookup_matrix[
+            batch[DEFAULT_HISTORY_ARTICLE_ID_COL].to_list()
+        ]
+        candidate_input = self.lookup_matrix[
+            batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()
+        ]
         # =>
         labels_item = np.array(batch[DEFAULT_LABELS_COL][0])
         idx = np.argsort(labels_item)
@@ -196,6 +245,7 @@ class NewsDataset(Dataset):
         history_input = torch.tensor(history_input).squeeze().bfloat16()
         candidate_input = torch.tensor(candidate_input[0][idx]).squeeze().bfloat16()
         y = torch.tensor(labels_item[idx], dtype=torch.bfloat16).squeeze()
+       
         # ========================
         return history_input, candidate_input, y
 
@@ -210,6 +260,10 @@ class NewsDataModule(LightningDataModule):
         max_labels: int = 5,
         padding_value: int = 0,
         max_length: int = 128,
+<<<<<<< HEAD
+=======
+        num_workers: int = 0,
+>>>>>>> f830de03a88be9972040354487388b30d0eef58b
         dataset: Literal["demo", "small", "large", "test"] = "demo",
         embeddings: Literal[
             "xlm-roberta-base", "bert-base-cased", "word2vec", "contrastive_vector"
@@ -223,6 +277,10 @@ class NewsDataModule(LightningDataModule):
         self.max_labels = max_labels
         self.padding_value = padding_value
         self.max_length = max_length
+<<<<<<< HEAD
+=======
+        self.num_workers = num_workers
+>>>>>>> f830de03a88be9972040354487388b30d0eef58b
 
         self.dataset = dataset
         self.embeddings = embeddings
@@ -233,7 +291,13 @@ class NewsDataModule(LightningDataModule):
         savefolder = os.path.join(self.data_path, self.dataset)
         if not os.path.exists(savefolder):
             os.makedirs(savefolder, exist_ok=True)
+<<<<<<< HEAD
             filename = download_file(url, os.path.join(savefolder, url.rpartition("/")[-1]))
+=======
+            filename = download_file(
+                url, os.path.join(savefolder, url.rpartition("/")[-1])
+            )
+>>>>>>> f830de03a88be9972040354487388b30d0eef58b
             self.data_path = unzip_file(filename, savefolder)
             os.remove(filename)
         else:
@@ -241,11 +305,22 @@ class NewsDataModule(LightningDataModule):
 
         # Download the embeddings
         embeddings_url = CHALLENGE_DATASET[self.embeddings]
+<<<<<<< HEAD
         embeddings_folder = os.path.join(self.data_path.rpartition('/')[0], self.embeddings)
         if not os.path.exists(embeddings_folder):
             os.makedirs(embeddings_folder, exist_ok=True)
             filename = download_file(
                 embeddings_url, os.path.join(embeddings_folder, embeddings_url.rpartition("/")[-1])
+=======
+        embeddings_folder = os.path.join(
+            self.data_path.rpartition("/")[0], self.embeddings
+        )
+        if not os.path.exists(embeddings_folder):
+            os.makedirs(embeddings_folder, exist_ok=True)
+            filename = download_file(
+                embeddings_url,
+                os.path.join(embeddings_folder, embeddings_url.rpartition("/")[-1]),
+>>>>>>> f830de03a88be9972040354487388b30d0eef58b
             )
             self.embeddings_path = unzip_file(filename, embeddings_folder)
             os.remove(filename)
@@ -260,6 +335,7 @@ class NewsDataModule(LightningDataModule):
                     return
         raise FileNotFoundError("No parquet file found in the embeddings directory.")
 
+<<<<<<< HEAD
     def setup(self, stage=None):
         df_behaviors, df_history, df_articles = load_data(self.data_path, split="train")
         self.train_dataset = NewsDataset(
@@ -292,16 +368,92 @@ class NewsDataModule(LightningDataModule):
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
             self.train_dataset, batch_size=self.batch_size, shuffle=True
+=======
+    def setup(self, stage: str):
+        match stage:
+            case "fit" | "validation" | None:
+                # Load the training data
+                save_dir = os.path.join(self.data_path, "train", "preprocessed")
+                if os.path.exists(save_dir):
+                    self.train_dataset = NewsDataset.from_preprocessed(save_dir)
+
+                else:
+                    df_behaviors, df_history, df_articles = load_data(
+                        self.data_path, split="train"
+                    )
+                    self.train_dataset = NewsDataset(
+                        tokenizer=self.tokenizer,
+                        behaviors=df_behaviors,
+                        history=df_history,
+                        articles=df_articles,
+                        history_size=self.history_size,
+                        max_labels=self.max_labels,
+                        padding_value=self.padding_value,
+                        max_length=self.max_length,
+                        embeddings_path=self.embeddings_path,
+                    )
+                    os.makedirs(save_dir, exist_ok=True)
+                    self.train_dataset.save_preprocessed(save_dir)
+
+                # Load the validation data
+                save_dir = os.path.join(self.data_path, "validation", "preprocessed")
+                if os.path.exists(save_dir):
+                    self.val_dataset = NewsDataset.from_preprocessed(save_dir)
+                else:
+                    df_behaviors, df_history, df_articles = load_data(
+                        self.data_path, split="validation"
+                    )
+                    self.val_dataset = NewsDataset(
+                        tokenizer=self.tokenizer,
+                        behaviors=df_behaviors,
+                        history=df_history,
+                        articles=df_articles,
+                        history_size=self.history_size,
+                        max_labels=self.max_labels,
+                        padding_value=self.padding_value,
+                        max_length=self.max_length,
+                        embeddings_path=self.embeddings_path,
+                    )
+                    os.makedirs(save_dir, exist_ok=True)
+                    self.val_dataset.save_preprocessed(save_dir)
+
+            case _:
+                raise NotImplementedError("Test data not implemented yet.")
+
+    def train_dataloader(self):
+        return torch.utils.data.DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=self.num_workers,
+            pin_memory=bool(self.num_workers),
+>>>>>>> f830de03a88be9972040354487388b30d0eef58b
         )
 
     def val_dataloader(self):
         return torch.utils.data.DataLoader(
+<<<<<<< HEAD
             self.val_dataset, batch_size=self.batch_size, shuffle=False
+=======
+            self.val_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=bool(self.num_workers),
+>>>>>>> f830de03a88be9972040354487388b30d0eef58b
         )
 
     def test_dataloader(self):
         return torch.utils.data.DataLoader(
+<<<<<<< HEAD
             self.val_dataset, batch_size=self.batch_size, shuffle=False
+=======
+            self.val_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=bool(self.num_workers),
+>>>>>>> f830de03a88be9972040354487388b30d0eef58b
         )
 
 
@@ -326,12 +478,19 @@ def load_data(
     """
     _data_path = os.path.join(data_path, split)
 
+<<<<<<< HEAD
     df_behaviors = pl.scan_parquet(_data_path + "/behaviors.parquet")
     df_history = pl.scan_parquet(_data_path + "/history.parquet")
     df_articles = pl.scan_parquet(data_path + "/articles.parquet")
 
     return df_behaviors, df_history, df_articles
+=======
+    df_behaviors = pl.read_parquet(_data_path + "/behaviors.parquet")
+    df_history = pl.read_parquet(_data_path + "/history.parquet")
+    df_articles = pl.read_parquet(data_path + "/articles.parquet")
+>>>>>>> f830de03a88be9972040354487388b30d0eef58b
 
+    return df_behaviors, df_history, df_articles
 
 def map_list_article_id_to_value(
     behaviors: pl.DataFrame,
@@ -427,7 +586,7 @@ def map_list_article_id_to_value(
         └─────────┴─────────────────────────────┘
     """
     GROUPBY_ID = generate_unique_name(behaviors.columns, "_groupby_id")
-    behaviors = behaviors.lazy().with_row_index(GROUPBY_ID)
+    behaviors = behaviors.lazy().with_row_count(GROUPBY_ID)
     # =>
     select_column = (
         behaviors.select(pl.col(GROUPBY_ID), pl.col(behaviors_column))
