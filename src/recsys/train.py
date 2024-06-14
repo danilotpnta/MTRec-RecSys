@@ -20,6 +20,8 @@ def arg_list():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--dataset", type=str, default="demo")
     parser.add_argument("--embeddings_type", type=str, default="xlm-roberta-base")
+    parser.add_argument("--nhead", type=int, default=4)
+    parser.add_argument("--num_layers", type=int, default=2)
     return parser.parse_args()
 
 
@@ -47,7 +49,7 @@ def main():
     if args.load_from_checkpoint:
         model = MultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
     else:
-        model = MultitaskRecommender(args.hidden_dim, lr=args.lr, wd=args.wd)
+        model = MultitaskRecommender(args.hidden_dim, nhead=args.nhead, num_layers=args.num_layers, lr=args.lr, wd=args.wd)
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume_from_checkpoint)
 
 

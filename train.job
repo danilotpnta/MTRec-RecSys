@@ -1,8 +1,9 @@
 #!/bin/bash
 
 #SBATCH --partition=gpu
-#SBATCH --gpus=1
-
+# Apparently we are now charged for 2 GPUs automatically, so might as well. Change this to 1 if model training errors arise.
+#SBATCH --gpus=2
+#SBATCH --gpus-per-node=2
 #SBATCH --job-name=RECSYS
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
@@ -24,4 +25,4 @@ source $WORK_DIR/.venv/bin/activate
 python -m src.recsys.train \
     --data $HF_DATASETS_CACHE \
     --epochs 30 \
-    --dataset small
+    --dataset demo

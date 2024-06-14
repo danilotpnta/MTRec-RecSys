@@ -155,7 +155,7 @@ class MultitaskRecommender(LightningModule):
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         # Would be good if we can find a rationale for this in the literature.
-        self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.ones(1) * 4)
+        self.criterion = nn.CrossEntropyLoss()
 
     def configure_optimizers(self):
         return torch.optim.Adam(
@@ -171,6 +171,10 @@ class MultitaskRecommender(LightningModule):
         history:    B x H x D
         candidates: B x 1 x D
         """
+        # Experiment along with: self.W, self.q
+        # Implement a baseline: LinearRegression, SVM?
+        # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
+        # Maybe integrate our own BERT and finetune it? 
         user_embedding = self.transformer(history).mean(1)
         # Normalization in order to reduce the variance of the dot product
         scores = torch.bmm(
