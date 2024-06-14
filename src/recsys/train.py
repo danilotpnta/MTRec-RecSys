@@ -8,7 +8,7 @@ from ebrec.evaluation.metrics_protocols import MetricEvaluator
 from ebrec.evaluation.metrics_protocols import AucScore, MrrScore, NdcgScore, LogLossScore, RootMeanSquaredError, AccuracyScore, F1Score
 from recsys.metrics import calculate_accuracy, f1_score
 import torch
-
+import os
 
 def arg_list():
     parser = argparse.ArgumentParser(description="Training arguments")
@@ -19,9 +19,10 @@ def arg_list():
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--data_path", "--data", type=str, default="data")
-    parser.add_argument("--embeddings_path", type=str, default="embeddings")
+    parser.add_argument("--embeddings_path", type=str, default="embeddings/xlm_roberta_base.parquet")
     parser.add_argument("--neg_samples", type=int, default=5)
     # ../dataset/data/FacebookAI_xlm_roberta_base/xlm_roberta_base.parquet
+    parser.add_argument("--preprocessed_data_path", type=str, default="preprocessed_data")
     return parser.parse_args()
 
 
@@ -29,8 +30,10 @@ def main():
     args = arg_list()
     device = torch.device("cuda" if torch.cuda.is_available() and args.device=="cuda" else "cpu")
 
-    train_dataset = load_data(None, args.data_path, "train", args.embeddings_path, batch_size=args.bs)
-    val_dataset = load_data(None, args.data_path, "validation", args.embeddings_path, batch_size=args.bs)
+    train_dataset = load_data(None, args.data_path, "train", args.embeddings_path, batch_size=args.bs, preprocessed_data_path=os.path.join(args.preprocessed_data_path, "train_data.pkl"))
+    
+    val_dataset = load_data(None, args.data_path, "validation", args.embeddings_path, batch_size=args.bs, preprocessed_data_path=os.path.join(args.preprocessed_data_path, "val_data.pkl"))
+
     model = MTRec(args.hidden_dim)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)

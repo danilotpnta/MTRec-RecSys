@@ -1,6 +1,7 @@
 import os.path
 from math import ceil
 from typing import Any
+import pickle
 
 import numpy as np
 import polars as pl
@@ -209,7 +210,51 @@ class NewsDataset(Dataset):
 
         # ========================
         return history_input, candidate_input, y
+    
+    def save(self, file_path):
+        data_to_save = {
+            'behaviors': self.behaviors,
+            'history': self.history,
+            'articles': self.articles,
+            'lookup_indexes': self.lookup_indexes,
+            'lookup_matrix': self.lookup_matrix,
+            'data': self.data
+        }
+        with open(file_path, 'wb') as f:
+            pickle.dump(data_to_save, f)
 
+    @classmethod
+    def load(cls, file_path, 
+             tokenizer,
+             history_size: int = 30,
+             padding_value: int = 0,
+             max_length=128, 
+             batch_size=32,
+             embeddings_path=None,
+             neg_count=5):
+        
+        with open(file_path, 'rb') as f:
+            data_loaded = pickle.load(f)
+
+        instance = cls(
+            tokenizer=tokenizer,
+            behaviors=data_loaded['behaviors'],
+            history=data_loaded['history'],
+            articles=data_loaded['articles'],
+            history_size=history_size,
+            padding_value=padding_value,
+            max_length=max_length,
+            batch_size=batch_size,
+            embeddings_path=embeddings_path,
+            neg_count=neg_count
+        )
+
+        instance.lookup_indexes = data_loaded['lookup_indexes']
+        instance.lookup_matrix = data_loaded['lookup_matrix']
+        instance.data = data_loaded['data']
+
+        return instance
+    
 class NewsDatasetV2(NewsDataset):
     def __len__(self):
         return self.data.shape[0]
@@ -237,7 +282,7 @@ class NewsDatasetV2(NewsDataset):
         return history, candidates, labels
 
 def load_data(
-    tokenizer: Any, data_path: str, split="train", embeddings_path: str = None, batch_size=32
+    tokenizer: Any, data_path: str, split="train", embeddings_path: str = None, batch_size=32, preprocessed_data_path: str = None
 ):
     """
     Load the data from the given path and return the dataset.
@@ -258,13 +303,27 @@ def load_data(
     NewsDataset
         The dataset containing the data.
     """
+
+    if preprocessed_data_path and os.path.exists(preprocessed_data_path):
+        print("Loading preprocess data!")
+        return NewsDataset.load(
+            preprocessed_data_path,
+            tokenizer,
+            history_size=30,
+            padding_value=0,
+            max_length=128,
+            batch_size=batch_size,
+            embeddings_path=embeddings_path,
+            neg_count=5
+        )
+
     _data_path = os.path.join(data_path, split)
 
     df_behaviors = pl.scan_parquet(_data_path + "/behaviors.parquet")
     df_history = pl.scan_parquet(_data_path + "/history.parquet")
     df_articles = pl.scan_parquet(data_path + "/articles.parquet")
 
-    return NewsDataset(
+    dataset = NewsDataset(
         tokenizer,
         df_behaviors,
         df_history,
@@ -272,6 +331,13 @@ def load_data(
         embeddings_path=embeddings_path,
         batch_size=batch_size,
     )
+
+    if preprocessed_data_path:
+        print(f"Preprocessing of {split} data is done, saving to {preprocessed_data_path} ")
+        os.makedirs(os.path.dirname(preprocessed_data_path), exist_ok=True)
+        dataset.save(preprocessed_data_path)
+
+    return dataset
 
 
 def map_list_article_id_to_value(
