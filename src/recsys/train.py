@@ -1,7 +1,7 @@
 import argparse
 
 from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.profilers import PyTorchProfiler
+from pytorch_lightning.profilers import PyTorchProfiler, AdvancedProfiler
 
 from recsys.dataset import NewsDataModule
 from recsys.model import MultitaskRecommender
@@ -13,7 +13,7 @@ def arg_list():
     parser.add_argument("--bs", "--batch_size", type=int, default=32)
     parser.add_argument("--lr", "--learning_rate", type=float, default=1e-3)
     parser.add_argument("--wd", "--weight_decay", type=float, default=1e-5)
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--data_path", "--data", type=str, default="data")
     parser.add_argument("--check_val_every_n_epoch", type=int, default=1)
@@ -23,7 +23,8 @@ def arg_list():
     parser.add_argument("--dataset", type=str, default="demo")
     parser.add_argument("--embeddings_type", type=str, default="xlm-roberta-base")
     parser.add_argument("--nhead", type=int, default=4)
-    parser.add_argument("--num_layers", type=int, default=2)
+    parser.add_argument("--num_layers", type=int, default=12)
+    parser.add_argument("--num_workers", type=int, default=0)
     return parser.parse_args()
 
 
@@ -39,11 +40,13 @@ def main():
         batch_size=args.bs,
         dataset=args.dataset,
         embeddings=args.embeddings_type,
+        num_workers=args.num_workers
     )
     
     
     # Create a TensorBoard profiler instance
     profiler = PyTorchProfiler(tensorboard=True)  # Step 2
+    profiler_2 = AdvancedProfiler()
 
 
     trainer = Trainer(
@@ -51,7 +54,7 @@ def main():
         # gradient_clip_val=0.3,
         check_val_every_n_epoch=args.check_val_every_n_epoch,
         precision="bf16-mixed",
-        profiler=profiler
+        profiler="advanced"
     )
 
     if args.load_from_checkpoint:

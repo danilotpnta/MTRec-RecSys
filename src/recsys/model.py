@@ -148,7 +148,6 @@ class MultitaskRecommender(LightningModule):
 
         self.user_encoder = UserEncoder(hidden_dim)
         self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
-
         self.predictions = []
         self.labels = []
         self.metric_evaluator = MetricEvaluator(
@@ -158,6 +157,7 @@ class MultitaskRecommender(LightningModule):
                 AucScore(),
                 MrrScore(),
                 NdcgScore(k=10),
+                NdcgScore(k=5),
                 LogLossScore(),
                 RootMeanSquaredError(),
                 F1Score(),
@@ -196,9 +196,13 @@ class MultitaskRecommender(LightningModule):
         LEGEND:
         B - batch size (keep in mind we use an unusual mini-batch approach)
         H - history size (number of articles in the history, usually 30)
+        C - candidate length 
         D - hidden size (768)
         history:    B x H x D
-        candidates: B x 1 x D
+        candidates: B x C x D
+        
+        Returns:
+        B x C scores
         """
         # Implement a baseline: LinearRegression, SVM?
         # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)

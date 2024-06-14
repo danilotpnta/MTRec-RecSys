@@ -199,6 +199,7 @@ class NewsDataModule(LightningDataModule):
         max_labels: int = 5,
         padding_value: int = 0,
         max_length: int = 128,
+        num_workers: int = 0,
         dataset: Literal["demo", "small", "large", "test"] = "demo",
         embeddings: Literal[
             "xlm-roberta-base", "bert-base-cased", "word2vec", "contrastive_vector"
@@ -212,6 +213,7 @@ class NewsDataModule(LightningDataModule):
         self.max_labels = max_labels
         self.padding_value = padding_value
         self.max_length = max_length
+        self.num_workers = num_workers
 
         self.dataset = dataset
         self.embeddings = embeddings
@@ -280,17 +282,17 @@ class NewsDataModule(LightningDataModule):
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
-            self.train_dataset, batch_size=self.batch_size, shuffle=True
+            self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers, pin_memory=bool(self.num_workers)
         )
 
     def val_dataloader(self):
         return torch.utils.data.DataLoader(
-            self.val_dataset, batch_size=self.batch_size, shuffle=False
+            self.val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers, pin_memory=bool(self.num_workers)
         )
 
     def test_dataloader(self):
         return torch.utils.data.DataLoader(
-            self.val_dataset, batch_size=self.batch_size, shuffle=False
+            self.val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers, pin_memory=bool(self.num_workers)
         )
 
 
