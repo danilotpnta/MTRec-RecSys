@@ -43,6 +43,7 @@ COLUMNS = [
 DEFAULT_TOKENS_COL = "tokens"
 N_SAMPLES_COL = "n_samples"
 
+np.random.seed(42)
 
 class NewsDataset(Dataset):
     behaviors: pl.DataFrame
@@ -119,7 +120,7 @@ class NewsDataset(Dataset):
             )
             .select(COLUMNS)
             .pipe(create_binary_labels_column, seed=42, label_col=DEFAULT_LABELS_COL)
-            .pipe(sort_and_select, n=self.max_labels)
+            #.pipe(sort_and_select, n=self.max_labels)
             .with_columns(pl.col(DEFAULT_LABELS_COL).list.len().alias(N_SAMPLES_COL))
         )
 
@@ -185,9 +186,15 @@ class NewsDataset(Dataset):
         # =>
         candidate_input = self.lookup_matrix[x[DEFAULT_INVIEW_ARTICLES_COL].to_list()]
         # =>
-        history_input = torch.tensor(history_input).squeeze()
-        candidate_input = torch.tensor(candidate_input).squeeze()
-        y = torch.tensor(batch[DEFAULT_LABELS_COL], dtype=torch.float32).squeeze()
+        idx = np.argsort(batch[DEFAULT_LABELS_COL])
+        pos_idx_start = list((batch[DEFAULT_LABELS_COL])[idx]).index(1)
+        pos_idxs = np.random.choice(idx[pos_idx_start:], size=(1,), replace=False)
+        neg_idxs = np.random.choice(idx[:pos_idx_start], size=(self.max_labels-1,), replace=False)
+        idx = np.concatenate((neg_idxs, pos_idxs))
+        #shuffle(idx)
+        history_input = torch.tensor(history_input[idx]).squeeze()
+        candidate_input = torch.tensor(candidate_input[idx]).squeeze()
+        y = torch.tensor(batch[DEFAULT_LABELS_COL][idx], dtype=torch.float32).squeeze()
         # ========================
         return history_input, candidate_input, y
 
