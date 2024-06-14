@@ -61,12 +61,14 @@ class NewsDataset(Dataset):
         padding_value: int = 0,
         max_length=128,
         embeddings_path=None,
+        neg_count=5,
     ):
         self.behaviors = behaviors
         self.history = history
         self.articles = articles
         self.history_size = history_size
         self.padding_value = padding_value
+        self.neg_count = neg_count
 
         # self.tokenizer = tokenizer
         # self.max_length = max_length
@@ -82,7 +84,7 @@ class NewsDataset(Dataset):
                 DEFAULT_TOPICS_COL,  # topics
                 DEFAULT_CATEGORY_STR_COL,  # category_str
             ]
-        ).collect()
+        )
 
         self.history = self._process_history(self.history, history_size, padding_value)
 
@@ -145,7 +147,7 @@ class NewsDataset(Dataset):
                 padding_value=padding_value,
                 enable_warning=False,
             )
-            .collect()
+            
         )
 
     def _prepare_training_data(self, embeddings_path=None):
@@ -399,12 +401,11 @@ def load_data(
     """
     _data_path = os.path.join(data_path, split)
 
-    df_behaviors = pl.scan_parquet(_data_path + "/behaviors.parquet")
-    df_history = pl.scan_parquet(_data_path + "/history.parquet")
-    df_articles = pl.scan_parquet(data_path + "/articles.parquet")
+    df_behaviors = pl.read_parquet(_data_path + "/behaviors.parquet")
+    df_history = pl.read_parquet(_data_path + "/history.parquet")
+    df_articles = pl.read_parquet(data_path + "/articles.parquet")
 
     return df_behaviors, df_history, df_articles
-
 
 def map_list_article_id_to_value(
     behaviors: pl.DataFrame,
@@ -500,7 +501,7 @@ def map_list_article_id_to_value(
         └─────────┴─────────────────────────────┘
     """
     GROUPBY_ID = generate_unique_name(behaviors.columns, "_groupby_id")
-    behaviors = behaviors.lazy().with_row_index(GROUPBY_ID)
+    behaviors = behaviors.lazy().with_row_count(GROUPBY_ID)
     # =>
     select_column = (
         behaviors.select(pl.col(GROUPBY_ID), pl.col(behaviors_column))
