@@ -86,7 +86,7 @@ class NewsDataset(Dataset):
                 DEFAULT_TOPICS_COL,
                 DEFAULT_CATEGORY_STR_COL,
             ]
-        ).collect()
+        )
 
         self._process_history()
         self._set_data()
@@ -101,11 +101,11 @@ class NewsDataset(Dataset):
                 padding_value=self.padding_value,
                 enable_warning=False,
             )
-            .collect()
+            
         )
 
     def _set_data(self):
-        self.behaviors = self.behaviors.collect()
+        self.behaviors = self.behaviors
         self.data: pl.DataFrame = (
             slice_join_dataframes(
                 self.behaviors,
@@ -305,7 +305,7 @@ def load_data(
     """
 
     if preprocessed_data_path and os.path.exists(preprocessed_data_path):
-        print("Loading preprocess data!")
+        print(f"Loading {split} preprocess data!")
         return NewsDataset.load(
             preprocessed_data_path,
             tokenizer,
@@ -319,9 +319,9 @@ def load_data(
 
     _data_path = os.path.join(data_path, split)
 
-    df_behaviors = pl.scan_parquet(_data_path + "/behaviors.parquet")
-    df_history = pl.scan_parquet(_data_path + "/history.parquet")
-    df_articles = pl.scan_parquet(data_path + "/articles.parquet")
+    df_behaviors = pl.read_parquet(_data_path + "/behaviors.parquet")
+    df_history = pl.read_parquet(_data_path + "/history.parquet")
+    df_articles = pl.read_parquet(data_path + "/articles.parquet")
 
     dataset = NewsDataset(
         tokenizer,
@@ -434,7 +434,7 @@ def map_list_article_id_to_value(
         └─────────┴─────────────────────────────┘
     """
     GROUPBY_ID = generate_unique_name(behaviors.columns, "_groupby_id")
-    behaviors = behaviors.lazy().with_row_index(GROUPBY_ID)
+    behaviors = behaviors.lazy().with_row_count(GROUPBY_ID)
     # =>
     select_column = (
         behaviors.select(pl.col(GROUPBY_ID), pl.col(behaviors_column))
