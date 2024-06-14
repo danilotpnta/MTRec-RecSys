@@ -146,8 +146,7 @@ class NewsDataset(Dataset):
                 history_size=history_size,
                 padding_value=padding_value,
                 enable_warning=False,
-            )
-            
+            ).collect()
         )
 
     def _prepare_training_data(self, embeddings_path=None):
@@ -401,9 +400,9 @@ def load_data(
     """
     _data_path = os.path.join(data_path, split)
 
-    df_behaviors = pl.read_parquet(_data_path + "/behaviors.parquet")
-    df_history = pl.read_parquet(_data_path + "/history.parquet")
-    df_articles = pl.read_parquet(data_path + "/articles.parquet")
+    df_behaviors = pl.scan_parquet(_data_path + "/behaviors.parquet")
+    df_history = pl.scan_parquet(_data_path + "/history.parquet")
+    df_articles = pl.scan_parquet(data_path + "/articles.parquet")
 
     return df_behaviors, df_history, df_articles
 
