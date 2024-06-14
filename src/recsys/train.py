@@ -1,6 +1,8 @@
 import argparse
 
 from pytorch_lightning import Trainer, seed_everything
+from pytorch_lightning.profilers import PyTorchProfiler
+
 from recsys.dataset import NewsDataModule
 from recsys.model import MultitaskRecommender
 
@@ -38,12 +40,18 @@ def main():
         dataset=args.dataset,
         embeddings=args.embeddings_type,
     )
+    
+    
+    # Create a TensorBoard profiler instance
+    profiler = PyTorchProfiler(tensorboard=True)  # Step 2
+
 
     trainer = Trainer(
         max_epochs=args.epochs,
         # gradient_clip_val=0.3,
         check_val_every_n_epoch=args.check_val_every_n_epoch,
         precision="bf16-mixed",
+        profiler=profiler
     )
 
     if args.load_from_checkpoint:
