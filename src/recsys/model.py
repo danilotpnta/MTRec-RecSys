@@ -71,17 +71,35 @@ def apply_softmax_crossentropy(logits, repeats, one_hot_targets, epsilon=1e-10):
     return segment_losses
 
 
+class UserEncoder(nn.Module):
+    """
+    A simple user encoder that averages the embeddings of the user's read articles.
+    """
+
+    def __init__(self, hidden_dim):
+        super(UserEncoder, self).__init__()
+        self.W = nn.Linear(hidden_dim, hidden_dim)
+        self.q = nn.Parameter(torch.randn(hidden_dim))
+
+    def forward(self, history):
+        """
+        B - batch size (keep in mind we use an unusual mini-batch approach)
+        H - history size (number of articles in the history, usually 30)
+        D - hidden size (768)
+        history: B x H x D
+        """
+        att = self.q * F.tanh(self.W(history))
+        att_weight = F.softmax(att, dim=1)
+        user_embedding = torch.sum(history * att_weight, dim=1)
+        return user_embedding
+
 class MTRec(nn.Module):
     """The main prediction model for the multi-task recommendation system, as described in the paper by ..."""
 
     def __init__(self, hidden_dim):
         super(MTRec, self).__init__()
 
-        self.W = nn.Linear(hidden_dim, hidden_dim)
-        self.q = nn.Parameter(torch.randn(hidden_dim))
-        self.transformer_hist_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim, nhead=8
-        )
+        self.user_encoder = UserEncoder(hidden_dim)
         self.transformer_cand_layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim, nhead=8
         )
@@ -101,15 +119,8 @@ class MTRec(nn.Module):
         candidates: B x 1 x D
         """
 
-        # print(f"{candidates.shape=}")
         history = self.transformer_hist(history)
-        att = self.q * F.tanh(self.W(history))
-        att_weight = F.softmax(att, dim=1)
-        # print(f"{att_weight.shape=}")
-
-        user_embedding = torch.sum(history * att_weight, dim=1)
-        # print(f"{user_embedding.shape=}")
-        # print(f"{user_embedding.unsqueeze(-1).shape=}")
+        user_embedding = self.user_encoder(history)
         candidates = self.transformer_cand(candidates)
         score = torch.bmm(candidates, user_embedding.unsqueeze(-1))  # B x M x 1
         # print(score.shape)
@@ -134,10 +145,10 @@ class MultitaskRecommender(LightningModule):
         transformer = nn.TransformerEncoderLayer(
             d_model=hidden_dim, nhead=nhead, batch_first=True
         )
+
+        self.user_encoder = UserEncoder(hidden_dim)
         self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
-        self.W = nn.Linear(hidden_dim, hidden_dim)
-        self.q = nn.Parameter(torch.randn(hidden_dim))
-        
+
         self.predictions = []
         self.labels = []
         self.metric_evaluator = MetricEvaluator(
@@ -149,7 +160,6 @@ class MultitaskRecommender(LightningModule):
                 NdcgScore(k=10),
                 LogLossScore(),
                 RootMeanSquaredError(),
-                AccuracyScore(),
                 F1Score(),
             ],
         )
@@ -193,12 +203,9 @@ class MultitaskRecommender(LightningModule):
         # Implement a baseline: LinearRegression, SVM?
         # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
         # Maybe integrate our own BERT and finetune it? 
-
-        # user_embedding = self.transformer(history).mean(1)
-        att = self.q * F.tanh(self.W(history))
-        att_weight = F.softmax(att, dim=1)
-        user_embedding = torch.sum(history * att_weight, dim=1)
-
+        # history = self.transformer(history)
+        # user_embedding = self.transformer(history).mean(dim=1)
+        user_embedding = self.user_encoder(history)
         # Normalization in order to reduce the variance of the dot product
         scores = torch.bmm(
             F.normalize(candidates), F.normalize(user_embedding.unsqueeze(-1))
