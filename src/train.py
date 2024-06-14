@@ -15,6 +15,10 @@ from transformers import AutoTokenizer, AutoModel
 from transformers import TrainingArguments, Trainer
 # from transformers import get_schedulers
 # from datasets import load_dataset
+#  Import tensorboard loggers
+from torch.utils.tensorboard import SummaryWriter
+
+
 
 from model.model import UserEmbedding, RankingScore
 from utils.helper import RecDataset
@@ -53,6 +57,8 @@ optimizer = AdamW(model.parameters(), lr=1e-3, weight_decay=0.1)
 # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=1e-3, total_steps=num_epochs, pct_start=0.1)
 
+logger = SummaryWriter(log_dir='log_dir')
+
 best = 0.0
 entropy = torch.nn.CrossEntropyLoss()
 for epoch in range(num_epochs):
@@ -63,7 +69,7 @@ for epoch in range(num_epochs):
         outputs = model(hist, mask_hist, cand, cand_hist, bz_train)
         outputs = outputs.squeeze(-1)
         loss = entropy(outputs, labels)
-        
+        logger.add_scalar('train_loss', loss.item())
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
