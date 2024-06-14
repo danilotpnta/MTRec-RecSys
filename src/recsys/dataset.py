@@ -161,7 +161,7 @@ class NewsDataset(Dataset):
             )
             .select(COLUMNS)
             .pipe(create_binary_labels_column, seed=42, label_col=DEFAULT_LABELS_COL)
-            .pipe(sort_and_select, n=self.max_labels)
+             #.pipe(sort_and_select, n=self.max_labels)
             .with_columns(pl.col(DEFAULT_LABELS_COL).list.len().alias(N_SAMPLES_COL))
         )
 
