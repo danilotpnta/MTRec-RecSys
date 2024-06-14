@@ -186,15 +186,16 @@ class NewsDataset(Dataset):
         # =>
         candidate_input = self.lookup_matrix[x[DEFAULT_INVIEW_ARTICLES_COL].to_list()]
         # =>
-        idx = np.argsort(batch[DEFAULT_LABELS_COL])
-        pos_idx_start = list((batch[DEFAULT_LABELS_COL])[idx]).index(1)
+        labels_item = np.array(batch[DEFAULT_LABELS_COL][0])
+        idx = np.argsort(labels_item)
+        pos_idx_start = list(labels_item[idx]).index(1)
         pos_idxs = np.random.choice(idx[pos_idx_start:], size=(1,), replace=False)
         neg_idxs = np.random.choice(idx[:pos_idx_start], size=(self.max_labels-1,), replace=False)
         idx = np.concatenate((neg_idxs, pos_idxs))
         #shuffle(idx)
-        history_input = torch.tensor(history_input[idx]).squeeze()
-        candidate_input = torch.tensor(candidate_input[idx]).squeeze()
-        y = torch.tensor(batch[DEFAULT_LABELS_COL][idx], dtype=torch.float32).squeeze()
+        history_input = torch.tensor(history_input).squeeze().bfloat16()
+        candidate_input = torch.tensor(candidate_input[0][idx]).squeeze().bfloat16()
+        y = torch.tensor(labels_item[idx], dtype=torch.bfloat16).squeeze()
         # ========================
         return history_input, candidate_input, y
 
