@@ -155,7 +155,23 @@ class MultitaskRecommender(LightningModule):
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         # Would be good if we can find a rationale for this in the literature.
-        self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.ones(1) * 4)
+        # self.criterion = nn.CrossEntropyLoss(pos_weight=torch.ones(1) * 4)
+        
+        # # Question: Will it understand this dimensionality? A: Probably yes.
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+
+        # # Question: Is pos weight correct? TODO: Experiment with both. 
 
     def configure_optimizers(self):
         return torch.optim.Adam(
