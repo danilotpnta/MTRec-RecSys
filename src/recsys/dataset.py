@@ -260,10 +260,7 @@ class NewsDataModule(LightningDataModule):
         max_labels: int = 5,
         padding_value: int = 0,
         max_length: int = 128,
-<<<<<<< HEAD
-=======
         num_workers: int = 0,
->>>>>>> f830de03a88be9972040354487388b30d0eef58b
         dataset: Literal["demo", "small", "large", "test"] = "demo",
         embeddings: Literal[
             "xlm-roberta-base", "bert-base-cased", "word2vec", "contrastive_vector"
@@ -277,10 +274,7 @@ class NewsDataModule(LightningDataModule):
         self.max_labels = max_labels
         self.padding_value = padding_value
         self.max_length = max_length
-<<<<<<< HEAD
-=======
         self.num_workers = num_workers
->>>>>>> f830de03a88be9972040354487388b30d0eef58b
 
         self.dataset = dataset
         self.embeddings = embeddings
@@ -291,13 +285,9 @@ class NewsDataModule(LightningDataModule):
         savefolder = os.path.join(self.data_path, self.dataset)
         if not os.path.exists(savefolder):
             os.makedirs(savefolder, exist_ok=True)
-<<<<<<< HEAD
-            filename = download_file(url, os.path.join(savefolder, url.rpartition("/")[-1]))
-=======
             filename = download_file(
                 url, os.path.join(savefolder, url.rpartition("/")[-1])
             )
->>>>>>> f830de03a88be9972040354487388b30d0eef58b
             self.data_path = unzip_file(filename, savefolder)
             os.remove(filename)
         else:
@@ -305,13 +295,6 @@ class NewsDataModule(LightningDataModule):
 
         # Download the embeddings
         embeddings_url = CHALLENGE_DATASET[self.embeddings]
-<<<<<<< HEAD
-        embeddings_folder = os.path.join(self.data_path.rpartition('/')[0], self.embeddings)
-        if not os.path.exists(embeddings_folder):
-            os.makedirs(embeddings_folder, exist_ok=True)
-            filename = download_file(
-                embeddings_url, os.path.join(embeddings_folder, embeddings_url.rpartition("/")[-1])
-=======
         embeddings_folder = os.path.join(
             self.data_path.rpartition("/")[0], self.embeddings
         )
@@ -320,7 +303,6 @@ class NewsDataModule(LightningDataModule):
             filename = download_file(
                 embeddings_url,
                 os.path.join(embeddings_folder, embeddings_url.rpartition("/")[-1]),
->>>>>>> f830de03a88be9972040354487388b30d0eef58b
             )
             self.embeddings_path = unzip_file(filename, embeddings_folder)
             os.remove(filename)
@@ -335,40 +317,6 @@ class NewsDataModule(LightningDataModule):
                     return
         raise FileNotFoundError("No parquet file found in the embeddings directory.")
 
-<<<<<<< HEAD
-    def setup(self, stage=None):
-        df_behaviors, df_history, df_articles = load_data(self.data_path, split="train")
-        self.train_dataset = NewsDataset(
-            tokenizer=self.tokenizer,
-            behaviors=df_behaviors,
-            history=df_history,
-            articles=df_articles,
-            history_size=self.history_size,
-            max_labels=self.max_labels,
-            padding_value=self.padding_value,
-            max_length=self.max_length,
-            embeddings_path=self.embeddings_path,
-        )
-
-        df_behaviors, df_history, df_articles = load_data(
-            self.data_path, split="validation"
-        )
-        self.val_dataset = NewsDataset(
-            tokenizer=self.tokenizer,
-            behaviors=df_behaviors,
-            history=df_history,
-            articles=df_articles,
-            history_size=self.history_size,
-            max_labels=self.max_labels,
-            padding_value=self.padding_value,
-            max_length=self.max_length,
-            embeddings_path=self.embeddings_path,
-        )
-
-    def train_dataloader(self):
-        return torch.utils.data.DataLoader(
-            self.train_dataset, batch_size=self.batch_size, shuffle=True
-=======
     def setup(self, stage: str):
         match stage:
             case "fit" | "validation" | None:
@@ -427,33 +375,24 @@ class NewsDataModule(LightningDataModule):
             shuffle=True,
             num_workers=self.num_workers,
             pin_memory=bool(self.num_workers),
->>>>>>> f830de03a88be9972040354487388b30d0eef58b
         )
 
     def val_dataloader(self):
         return torch.utils.data.DataLoader(
-<<<<<<< HEAD
-            self.val_dataset, batch_size=self.batch_size, shuffle=False
-=======
             self.val_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=bool(self.num_workers),
->>>>>>> f830de03a88be9972040354487388b30d0eef58b
         )
 
     def test_dataloader(self):
         return torch.utils.data.DataLoader(
-<<<<<<< HEAD
-            self.val_dataset, batch_size=self.batch_size, shuffle=False
-=======
             self.val_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=bool(self.num_workers),
->>>>>>> f830de03a88be9972040354487388b30d0eef58b
         )
 
 
@@ -478,17 +417,9 @@ def load_data(
     """
     _data_path = os.path.join(data_path, split)
 
-<<<<<<< HEAD
-    df_behaviors = pl.scan_parquet(_data_path + "/behaviors.parquet")
-    df_history = pl.scan_parquet(_data_path + "/history.parquet")
-    df_articles = pl.scan_parquet(data_path + "/articles.parquet")
-
-    return df_behaviors, df_history, df_articles
-=======
     df_behaviors = pl.read_parquet(_data_path + "/behaviors.parquet")
     df_history = pl.read_parquet(_data_path + "/history.parquet")
     df_articles = pl.read_parquet(data_path + "/articles.parquet")
->>>>>>> f830de03a88be9972040354487388b30d0eef58b
 
     return df_behaviors, df_history, df_articles
 
