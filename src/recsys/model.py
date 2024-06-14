@@ -158,7 +158,10 @@ class MultitaskRecommender(LightningModule):
                 F1Score(),
             ],
         )
-
+        
+        from torchmetrics import Accuracy
+        self.accuracy = Accuracy(task="multiclass", num_classes=5)
+        
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         # Would be good if we can find a rationale for this in the literature.
@@ -231,7 +234,9 @@ class MultitaskRecommender(LightningModule):
         scores = self(history, candidates)
 
         loss = self.criterion(scores, labels)
-
+        
+        accuracy = self.accuracy(scores, labels)
+        self.log("val_accuracy", accuracy, prog_bar=True) 
         self.log("val_loss", loss, prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())

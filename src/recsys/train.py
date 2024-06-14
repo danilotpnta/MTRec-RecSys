@@ -21,7 +21,7 @@ def arg_list():
     parser.add_argument("--dataset", type=str, default="demo")
     parser.add_argument("--embeddings_type", type=str, default="xlm-roberta-base")
     parser.add_argument("--nhead", type=int, default=4)
-    parser.add_argument("--num_layers", type=int, default=12)
+    parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=0)
     return parser.parse_args()
 
