@@ -125,6 +125,11 @@ class MTRec(nn.Module):
         n_news = len(batch_news) // bz
         reshaped_batch = batch_news.reshape(bz, n_news, -1)
         return reshaped_batch
+    
+class NLLLoss(nn.Module):
+    def forward(self, preds, target):
+        preds = preds.sigmoid()
+        return - torch.log(preds.where(target==1, -torch.inf).exp().sum(dim=-1, keepdims=True) / (preds.exp().sum(dim=-1, keepdims=True))).mean()
 
 
 class MultitaskRecommender(LightningModule):
@@ -132,7 +137,7 @@ class MultitaskRecommender(LightningModule):
     The main prediction model for the multi-task recommendation system we implement.
     """
 
-    def __init__(self, hidden_dim, nhead=8, num_layers=4, lr=1e-3, wd=0.0, **kwargs):
+    def __init__(self, hidden_dim, nhead=8, num_layers=4, lr=1e-2, wd=0.0, **kwargs):
         super().__init__()
 
         self.save_hyperparameters()
@@ -159,9 +164,13 @@ class MultitaskRecommender(LightningModule):
             ],
         )
         
-        from torchmetrics import Accuracy
-        self.accuracy = Accuracy(task="multiclass", num_classes=5)
-        
+        # from torchmetrics.retrieval import RetrievalAUROC
+        from torchmetrics.classification import MulticlassAccuracy
+        from torchmetrics.classification import MultilabelAccuracy
+        from torchmetrics.classification import MultilabelAUROC
+        self.accuracy = MultilabelAccuracy(num_labels=5)
+        self.auroc = MultilabelAUROC(num_labels=5)
+
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         # Would be good if we can find a rationale for this in the literature.
@@ -181,12 +190,13 @@ class MultitaskRecommender(LightningModule):
         # [0.1, 0.2, 0.3, 0.4, 0.5]
         # [0.1, 0.2, 0.3, 0.4, 0.5]
 
-        # # Question: Is pos weight correct? TODO: Experiment with both. 
+        # self.criterion = NLLLoss()
         self.criterion = nn.CrossEntropyLoss()
 
     def configure_optimizers(self):
-        return torch.optim.Adam(
-            self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
+        print(f'Learning rate: {self.hparams.lr}')
+        return torch.optim.AdamW(
+            self.parameters(), lr=self.hparams.lr
         )
 
     def forward(self, history, candidates):
@@ -206,13 +216,22 @@ class MultitaskRecommender(LightningModule):
         # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
         # Maybe integrate our own BERT and finetune it? 
         # history = self.transformer(history)
-        # user_embedding = self.transformer(history).mean(dim=1)
+        # user_embedding = self.transformer(history)
+        # user_embedding = (user_embedding.softmax(dim=1) * user_embedding).sum(dim=1)
         user_embedding = self.user_encoder(history)
         # Normalization in order to reduce the variance of the dot product
         scores = torch.bmm(
             F.normalize(candidates), F.normalize(user_embedding.unsqueeze(-1))
         )
         return scores.squeeze(-1)
+
+    def on_train_epoch_start(self) -> None:
+        super().on_train_epoch_start()
+        self.param = next(iter(self.parameters())).detach().clone()
+    def on_train_epoch_end(self) -> None:
+        super().on_train_epoch_end()
+        self.param = self.param - next(iter(self.parameters())).detach().clone()
+        self.log("param_change", self.param.abs().mean(), prog_bar=True)
 
     def training_step(self, batch, batch_idx):
         history, candidates, labels = batch
@@ -236,7 +255,9 @@ class MultitaskRecommender(LightningModule):
         loss = self.criterion(scores, labels)
         
         accuracy = self.accuracy(scores, labels)
-        self.log("val_accuracy", accuracy, prog_bar=True) 
+        auroc = self.auroc(scores, labels.long())
+        # self.log("val_accuracy", accuracy, prog_bar=True) 
+        self.log("val_auroc", auroc, prog_bar=True) 
         self.log("val_loss", loss, prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())
