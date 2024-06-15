@@ -235,7 +235,9 @@ class MultitaskRecommender(LightningModule):
 
         loss = self.criterion(scores, labels)
         
-        accuracy = self.accuracy(scores, labels)
+        accuracy = self.accuracy(scores.to(torch.float32), 
+                                 labels.to(torch.float32))
+
         self.log("val_accuracy", accuracy, prog_bar=True) 
         self.log("val_loss", loss, prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
