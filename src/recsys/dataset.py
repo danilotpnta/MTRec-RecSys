@@ -188,7 +188,7 @@ class NewsDataset(Dataset):
         )
 
         # self.lookup_indexes = {i: val.item() for i, val in self.lookup_indexes.items()}
-        self.data = self.data.pipe(
+        self.data = self.data.lazy().pipe(
             map_list_article_id_to_value,
             behaviors_column=DEFAULT_HISTORY_ARTICLE_ID_COL,
             mapping=self.lookup_indexes,
@@ -198,7 +198,7 @@ class NewsDataset(Dataset):
             behaviors_column=DEFAULT_INVIEW_ARTICLES_COL,
             mapping=self.lookup_indexes,
             fill_nulls=[0],
-        )
+        ).collect(streaming=True)
 
         self.data = PolarsDataFrameWrapper(self.data)
 
@@ -251,7 +251,7 @@ class NewsDataModule(LightningDataModule):
     ):
         super().__init__()
         self.tokenizer = tokenizer
-        self.data_path = data_path
+        self.root_path = data_path
         self.batch_size = batch_size
         self.history_size = history_size
         self.max_labels = max_labels
@@ -265,7 +265,7 @@ class NewsDataModule(LightningDataModule):
     def prepare_data(self):
         # Download the dataset
         url = CHALLENGE_DATASET[self.dataset]
-        savefolder = os.path.join(self.data_path, self.dataset)
+        savefolder = os.path.join(self.root_path, self.dataset)
         if not os.path.exists(savefolder):
             os.makedirs(savefolder, exist_ok=True)
             filename = download_file(
@@ -279,7 +279,7 @@ class NewsDataModule(LightningDataModule):
         # Download the embeddings
         embeddings_url = CHALLENGE_DATASET[self.embeddings]
         embeddings_folder = os.path.join(
-            self.data_path.rpartition("/")[0], self.embeddings
+            self.root_path, self.embeddings
         )
         if not os.path.exists(embeddings_folder):
             os.makedirs(embeddings_folder, exist_ok=True)
@@ -299,6 +299,20 @@ class NewsDataModule(LightningDataModule):
                     self.embeddings_path = os.path.join(root, file)
                     return
         raise FileNotFoundError("No parquet file found in the embeddings directory.")
+
+    def _download_test(self):
+        # Download the dataset
+        url = CHALLENGE_DATASET["test"]
+        savefolder = os.path.join(self.root_path, "test")
+        if not os.path.exists(savefolder):
+            os.makedirs(savefolder, exist_ok=True)
+            filename = download_file(
+                url, os.path.join(savefolder, url.rpartition("/")[-1])
+            )
+            self.data_path = unzip_file(filename, savefolder)
+            os.remove(filename)
+        else:
+            self.data_path = savefolder
 
     def setup(self, stage: str):
         match stage:
@@ -349,7 +363,24 @@ class NewsDataModule(LightningDataModule):
                     self.val_dataset.save_preprocessed(save_dir)
 
             case _:
-                raise NotImplementedError("Test data not implemented yet.")
+                # Otherwise, test.
+                self._download_test()
+                df_behaviors, df_history, df_articles = load_data(
+                    self.data_path, split="test"
+                )
+                self.test_dataset = NewsDataset(
+                    tokenizer=self.tokenizer,
+                    behaviors=df_behaviors,
+                    history=df_history,
+                    articles=df_articles,
+                    history_size=self.history_size,
+                    max_labels=self.max_labels,
+                    padding_value=self.padding_value,
+                    max_length=self.max_length,
+                    embeddings_path=self.embeddings_path,
+                )
+                os.makedirs(save_dir, exist_ok=True)
+                self.test_dataset.save_preprocessed(save_dir)
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -407,12 +438,12 @@ def load_data(
     return df_behaviors, df_history, df_articles
 
 def map_list_article_id_to_value(
-    behaviors: pl.DataFrame,
+    behaviors: pl.LazyFrame,
     behaviors_column: str,
     mapping: dict[int, pl.Series],
     drop_nulls: bool = False,
     fill_nulls: any = None,
-) -> pl.DataFrame:
+) -> pl.LazyFrame:
     """
 
     Maps the values of a column in a DataFrame `behaviors` containing article IDs to their corresponding values
@@ -500,13 +531,12 @@ def map_list_article_id_to_value(
         └─────────┴─────────────────────────────┘
     """
     GROUPBY_ID = generate_unique_name(behaviors.columns, "_groupby_id")
-    behaviors = behaviors.lazy().with_row_count(GROUPBY_ID)
+    behaviors: pl.LazyFrame = behaviors.lazy().with_row_count(GROUPBY_ID)
     # =>
     select_column = (
         behaviors.select(pl.col(GROUPBY_ID), pl.col(behaviors_column))
         .explode(behaviors_column)
         .with_columns(pl.col(behaviors_column).replace(mapping, default=None))
-        .collect()
     )
     # =>
     if drop_nulls:
@@ -517,11 +547,10 @@ def map_list_article_id_to_value(
         )
     # =>
     select_column = (
-        select_column.lazy().group_by(GROUPBY_ID).agg(behaviors_column).collect()
+        select_column.group_by(GROUPBY_ID).agg(behaviors_column)
     )
     return (
         behaviors.drop(behaviors_column)
-        .collect()
         .join(select_column, on=GROUPBY_ID, how="left")
         .drop(GROUPBY_ID)
     )
@@ -534,13 +563,17 @@ def sort_and_select(
     inview_col: str = DEFAULT_INVIEW_ARTICLES_COL,
 ):
     """Selects the first clicked article and n-1 random articles from the inview articles."""
-    a, b = [], []
-    for i, x in enumerate(df[labels_col]):
-        idx = np.argsort(x)
-        idx = np.concatenate((idx[: n - 1], idx[-1:]))
-        shuffle(idx)
-        a.append(x[idx])
-        b.append(df[inview_col][i][idx])
+    # a, b = [], []
+    # for i, x in enumerate(df[labels_col]):
+    #     idx = np.argsort(x)
+    #     idx = np.concatenate((idx[: n - 1], idx[-1:]))
+    #     shuffle(idx)
+    #     a.append(x[idx])
+    #     b.append(df[inview_col][i][idx])
+
+    idx = df[labels_col].list.eval(pl.element().arg_sort().take([-1]+list(range(n-1))).shuffle(),parallel=True)
+    a = df[labels_col].list.gather(idx)
+    b = df[inview_col].list.gather(idx)
 
     return df.with_columns(
         pl.Series(a).alias(labels_col), pl.Series(b).alias(inview_col)
