@@ -1,3 +1,4 @@
+import sys
 import os.path
 from random import shuffle
 from typing import Any, Literal
@@ -21,10 +22,14 @@ from ebrec.utils._constants import (
     DEFAULT_TITLE_COL,
     DEFAULT_TOPICS_COL,
     DEFAULT_USER_COL,
+    DEFAULT_NER_COL,
 )
+
 from ebrec.utils._polars import slice_join_dataframes
 from ebrec.utils._python import (
     create_lookup_dict,
+    create_lookup_dict_,
+    print_dict_summary,
     create_lookup_objects,
     generate_unique_name,
 )
@@ -77,12 +82,13 @@ class NewsDataset(Dataset):
         # NOTE: Keep an eye on this if memory issues arise
         self.articles = self.articles.select(
             [
-                DEFAULT_ARTICLE_ID_COL,  # article_id
-                DEFAULT_TITLE_COL,  # title
-                DEFAULT_BODY_COL,  # body
-                DEFAULT_SUBTITLE_COL,  # subtitle
-                DEFAULT_TOPICS_COL,  # topics
+                DEFAULT_ARTICLE_ID_COL,    # article_id
+                DEFAULT_TITLE_COL,         # title
+                DEFAULT_BODY_COL,          # body
+                DEFAULT_SUBTITLE_COL,      # subtitle
+                DEFAULT_TOPICS_COL,        # topics
                 DEFAULT_CATEGORY_STR_COL,  # category_str
+                DEFAULT_NER_COL,           # ner_clusters
             ]
         )
 
@@ -177,12 +183,27 @@ class NewsDataset(Dataset):
             .collect()
         )
 
+
         article_dict = create_lookup_dict(
-            self.articles.select(DEFAULT_ARTICLE_ID_COL, DEFAULT_TOKENS_COL),
-            key=DEFAULT_ARTICLE_ID_COL,
-            value=DEFAULT_TOKENS_COL,
+            self.articles.select(DEFAULT_ARTICLE_ID_COL, # KEY
+                                 DEFAULT_TOKENS_COL,     # VALUE_1
+                                 DEFAULT_NER_COL),       # VALUE_2
+            DEFAULT_ARTICLE_ID_COL,
+            DEFAULT_TOKENS_COL,
+            DEFAULT_NER_COL,
         )
 
+        article_dict_ = create_lookup_dict_(
+            self.articles.select(DEFAULT_ARTICLE_ID_COL, # KEY
+                                 DEFAULT_TOKENS_COL),       # VALUE_2
+            DEFAULT_ARTICLE_ID_COL,
+            DEFAULT_TOKENS_COL,
+        )
+
+        print_dict_summary("article_dict", article_dict)
+        print_dict_summary("article_dict_", article_dict_)
+        sys.exit()
+        
         self.lookup_indexes, self.lookup_matrix = create_lookup_objects(
             article_dict, unknown_representation="zeros"
         )
@@ -230,7 +251,16 @@ class NewsDataset(Dataset):
         idx = np.argsort(labels_item)
         pos_idx_start = list(labels_item[idx]).index(1)
         pos_idxs = np.random.choice(idx[pos_idx_start:], size=(1,), replace=False)
-        neg_idxs = np.random.choice(idx[:pos_idx_start], size=(self.max_labels-1,), replace=False)
+
+        population = idx[:pos_idx_start]
+        population_size = len(population)
+        sample_size = self.max_labels - 1
+
+        if population_size < sample_size:
+            neg_idxs = np.random.choice(population, size=sample_size, replace=True)
+        else:
+            neg_idxs = np.random.choice(population, size=sample_size, replace=False)
+    
         idx = np.concatenate((neg_idxs, pos_idxs))
         #shuffle(idx)
         history_input = torch.tensor(history_input).squeeze().bfloat16()
