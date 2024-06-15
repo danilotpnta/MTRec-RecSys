@@ -54,6 +54,10 @@ def main():
     else:
         model = MultitaskRecommender(args.hidden_dim, nhead=args.nhead, num_layers=args.num_layers, lr=args.lr, wd=args.wd)
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume_from_checkpoint)
+    
+    # Make predictions on the test set
+    preds = trainer.test(model, datamodule=datamodule)
+    print(preds)
 
 
 if __name__ == "__main__":
