@@ -388,7 +388,7 @@ def repeat_by_list_values_from_matrix(
     return np.repeat(matrix[input_array], repeats=repeats, axis=0)
 
 
-def create_lookup_dict(df: pl.DataFrame, key: str, value: str) -> dict:
+def create_lookup_dict_(df: pl.DataFrame, key: str, value: str) -> dict:
     """
     Creates a dictionary lookup table from a Pandas-like DataFrame.
 
@@ -407,6 +407,44 @@ def create_lookup_dict(df: pl.DataFrame, key: str, value: str) -> dict:
             {1: 'Alice', 2: 'Bob', 3: 'Charlie'}
     """
     return dict(zip(df[key], df[value]))
+
+
+
+def create_lookup_dict(df: pl.DataFrame, key: str, *values: str) -> dict:
+    df_dict = df.select([key, *values]).to_dict(as_series=False)
+    lookup_dict = {
+            df_dict[key][i]: {value: df_dict[value][i] for value in values}
+            for i in range(len(df_dict[key]))
+    }
+    return lookup_dict
+
+
+def print_dict_summary(name: str, d: dict, num_samples: int = 3, max_keys: int = 3):
+    """
+    Print a summary of a dictionary of arrays.
+
+    Args:
+        d (dict): The dictionary to summarize.
+        num_samples (int): The number of samples to print from each array.
+        max_keys (int): The maximum number of keys to print.
+    """
+    print(f"Summary of {name}:")
+    keys = list(d.keys())[:max_keys]
+    for k in keys:
+        v = d[k]
+        print(f"Key: {k}")
+        if isinstance(v, dict):
+            for sub_key, sub_value in v.items():
+                array_value = np.array(sub_value)
+                print(f"  {sub_key}: shape = {array_value.shape}, {num_samples} sample = {array_value[:num_samples]}")
+        else:
+            array_value = np.array(v)
+            print(f"  shape = {array_value.shape}, {num_samples} sample = {array_value[:num_samples]}")
+        print()  # Blank line for better readability
+
+    if len(d) > max_keys:
+        print(f"... and {len(d) - max_keys} more keys")
+
 
 
 def create_lookup_objects(
