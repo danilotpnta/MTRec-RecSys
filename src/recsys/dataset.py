@@ -161,7 +161,7 @@ class NewsDataset(Dataset):
             )
             .select(COLUMNS)
             .pipe(create_binary_labels_column, seed=42, label_col=DEFAULT_LABELS_COL)
-             #.pipe(sort_and_select, n=self.max_labels)
+            #.pipe(sort_and_select, n=self.max_labels)
             .with_columns(pl.col(DEFAULT_LABELS_COL).list.len().alias(N_SAMPLES_COL))
         )
 
@@ -229,8 +229,10 @@ class NewsDataset(Dataset):
         labels_item = np.array(batch[DEFAULT_LABELS_COL][0])
         idx = np.argsort(labels_item)
         pos_idx_start = list(labels_item[idx]).index(1)
-        pos_idxs = np.random.choice(idx[pos_idx_start:], size=(1,), replace=False)
-        neg_idxs = np.random.choice(idx[:pos_idx_start], size=(self.max_labels-1,), replace=False)
+        pos_idxs = batch_random_choice_with_reset(idx[pos_idx_start:], size=(1,))
+        neg_idxs = batch_random_choice_with_reset(idx[:pos_idx_start], size=(self.max_labels-1,))
+        #pos_idxs = np.random.choice(idx[pos_idx_start:], size=(1,), replace=False)
+        #neg_idxs = np.random.choice(idx[:pos_idx_start], size=(self.max_labels-1,), replace=False)
         idx = np.concatenate((neg_idxs, pos_idxs))
         #shuffle(idx)
         history_input = torch.tensor(history_input).squeeze().bfloat16()
@@ -412,6 +414,28 @@ def load_data(
     df_articles = pl.scan_parquet(data_path + "/articles.parquet")
 
     return df_behaviors, df_history, df_articles
+
+
+def batch_random_choice_with_reset(population, num_choices):
+    population = np.array(population)
+    population_size = len(population)
+    choices = []
+
+    while num_choices > 0:
+        if num_choices >= population_size:
+            # If more choices needed than the population size, take the whole population
+            batch_choices = np.random.permutation(population)
+            choices.extend(batch_choices)
+            num_choices -= population_size
+        else:
+            # If fewer choices needed than the population size, take a subset
+            batch_choices = np.random.choice(population, num_choices, replace=False)
+            choices.extend(batch_choices)
+            num_choices = 0
+
+    return np.array(choices)
+
+
 
 def map_list_article_id_to_value(
     behaviors: pl.DataFrame,
