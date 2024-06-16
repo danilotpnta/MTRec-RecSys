@@ -12,6 +12,8 @@ from ebrec.evaluation.metrics_protocols import (
     AccuracyScore,
     F1Score,
 )
+import numpy as np
+
 
 # Setting to get more matmul performance on Tensor Core capable machines.
 torch.set_float32_matmul_precision('medium')
@@ -216,7 +218,7 @@ class MultitaskRecommender(LightningModule):
         user_embedding = torch.sum(history * att_weight, dim = 1)
         #user_embedding = self.user_encoder(history)
         # Normalization in order to reduce the variance of the dot product
-        scores = torch.bmm(candidates, user_embedding.unsqueeze(-1))/torch.sqrt(candidates.size(-1)) # B x M x 1
+        scores = torch.bmm(candidates, user_embedding.unsqueeze(-1))/np.sqrt(candidates.size(-1)) # B x M x 1
         return scores.squeeze(-1)
 
     def training_step(self, batch, batch_idx):
