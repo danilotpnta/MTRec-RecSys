@@ -229,8 +229,8 @@ class NewsDataset(Dataset):
         labels_item = np.array(batch[DEFAULT_LABELS_COL][0])
         idx = np.argsort(labels_item)
         pos_idx_start = list(labels_item[idx]).index(1)
-        pos_idxs = batch_random_choice_with_reset(idx[pos_idx_start:], size=(1,))
-        neg_idxs = batch_random_choice_with_reset(idx[:pos_idx_start], size=(self.max_labels-1,))
+        pos_idxs = batch_random_choice_with_reset(idx[pos_idx_start:], 1)
+        neg_idxs = batch_random_choice_with_reset(idx[:pos_idx_start], self.max_labels-1)
         #pos_idxs = np.random.choice(idx[pos_idx_start:], size=(1,), replace=False)
         #neg_idxs = np.random.choice(idx[:pos_idx_start], size=(self.max_labels-1,), replace=False)
         idx = np.concatenate((neg_idxs, pos_idxs))
@@ -429,7 +429,7 @@ def batch_random_choice_with_reset(population, num_choices):
             num_choices -= population_size
         else:
             # If fewer choices needed than the population size, take a subset
-            batch_choices = np.random.choice(population, num_choices, replace=False)
+            batch_choices = np.random.choice(population, (num_choices,), replace=False)
             choices.extend(batch_choices)
             num_choices = 0
 
