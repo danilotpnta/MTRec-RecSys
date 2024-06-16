@@ -137,12 +137,14 @@ class MultitaskRecommender(LightningModule):
 
         self.save_hyperparameters()
 
-        transformer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim, nhead=nhead, batch_first=True
-        )
+        # transformer = nn.TransformerEncoderLayer(
+        #     d_model=hidden_dim, nhead=nhead, batch_first=True
+        # )
 
-        self.user_encoder = UserEncoder(hidden_dim)
-        self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
+        self.W = nn.Linear(hidden_dim, hidden_dim)
+        self.q = nn.Parameter(torch.randn(hidden_dim))
+        #self.user_encoder = UserEncoder(hidden_dim)
+        #self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
         self.predictions = []
         self.labels = []
         self.metric_evaluator = MetricEvaluator(
@@ -207,11 +209,14 @@ class MultitaskRecommender(LightningModule):
         # Maybe integrate our own BERT and finetune it? 
         # history = self.transformer(history)
         # user_embedding = self.transformer(history).mean(dim=1)
-        user_embedding = self.user_encoder(history)
+        att = self.q * F.tanh(self.W(history))
+        att_weight = F.softmax(att, dim=1)
+        # print(f"{att_weight.shape=}")
+
+        user_embedding = torch.sum(history * att_weight, dim = 1)
+        #user_embedding = self.user_encoder(history)
         # Normalization in order to reduce the variance of the dot product
-        scores = torch.bmm(
-            F.normalize(candidates), F.normalize(user_embedding.unsqueeze(-1))
-        )
+        scores = torch.bmm(candidates, user_embedding.unsqueeze(-1))/torch.sqrt(candidates.size(-1)) # B x M x 1
         return scores.squeeze(-1)
 
     def training_step(self, batch, batch_idx):
