@@ -281,7 +281,9 @@ class MultitaskRecommender(LightningModule):
         category_loss = self.category_loss(category_scores, category)
 
         loss = news_ranking_loss + category_loss
-        self.log("train_loss", loss, prog_bar=True)
+        self.log("train/loss", loss, prog_bar=True)
+        self.log("train/news_ranking_loss", news_ranking_loss, prog_bar=True)
+        self.log("train/category_loss", category_loss, prog_bar=True)
         return loss
 
     def on_validation_epoch_start(self) -> None:
@@ -298,16 +300,16 @@ class MultitaskRecommender(LightningModule):
 
         accuracy = self.accuracy(scores, labels)
         auroc = self.auroc(scores, labels.long())
-        self.log("val_accuracy", accuracy, prog_bar=True)
-        self.log("val_auroc", auroc, prog_bar=True)
-        self.log("val_loss", loss, prog_bar=True)
+        self.log("validation/accuracy", accuracy, prog_bar=True)
+        self.log("validation/auroc", auroc, prog_bar=True)
+        self.log("validation/loss", loss, prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())
 
     def on_validation_epoch_end(self) -> None:
         super().on_validation_epoch_end()
         metrics = self.metric_evaluator.evaluate()
-        self.log_dict(metrics.evaluations)
+        self.log_dict({f"validation/{k}":v for k, v in metrics.evaluations.items()})
 
     def test_step(self, batch, batch_idx):
         history, candidates, category, _ = batch
