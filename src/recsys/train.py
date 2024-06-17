@@ -52,7 +52,7 @@ def main():
     if args.load_from_checkpoint:
         model = BERTMultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
     else:
-        model = BERTMultitaskRecommender(args.hidden_dim, nhead=args.nhead, num_layers=args.num_layers, lr=args.lr, wd=args.wd)
+        model = BERTMultitaskRecommender(lr=args.lr, wd=args.wd)
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume_from_checkpoint)
 
 
