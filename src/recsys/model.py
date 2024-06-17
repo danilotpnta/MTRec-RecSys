@@ -258,15 +258,6 @@ class MultitaskRecommender(LightningModule):
         )
         return scores.squeeze(-1)
 
-    def on_train_epoch_start(self) -> None:
-        super().on_train_epoch_start()
-        self.param = next(iter(self.parameters())).detach().clone()
-
-    def on_train_epoch_end(self) -> None:
-        super().on_train_epoch_end()
-        self.param = self.param - next(iter(self.parameters())).detach().clone()
-        self.log("param_change", self.param.abs().mean(), prog_bar=True)
-
     def training_step(self, batch, batch_idx):
         history, candidates, category, labels = batch
         scores = self(history, candidates)
@@ -282,8 +273,8 @@ class MultitaskRecommender(LightningModule):
 
         loss = news_ranking_loss + category_loss
         self.log("train/loss", loss, prog_bar=True)
-        self.log("train/news_ranking_loss", news_ranking_loss, prog_bar=True)
-        self.log("train/category_loss", category_loss, prog_bar=True)
+        self.log("train/news_ranking_loss", news_ranking_loss)
+        self.log("train/category_loss", category_loss)
         return loss
 
     def on_validation_epoch_start(self) -> None:
@@ -300,8 +291,8 @@ class MultitaskRecommender(LightningModule):
 
         accuracy = self.accuracy(scores, labels)
         auroc = self.auroc(scores, labels.long())
-        self.log("validation/accuracy", accuracy, prog_bar=True)
-        self.log("validation/auroc", auroc, prog_bar=True)
+        self.log("validation/accuracy", accuracy)
+        self.log("validation/auroc", auroc)
         self.log("validation/loss", loss, prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())
