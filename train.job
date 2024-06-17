@@ -2,13 +2,13 @@
 
 #SBATCH --partition=gpu
 # Apparently we are now charged for 2 GPUs automatically, so might as well. Change this to 1 if model training errors arise.
-#SBATCH --gpus=2
-#SBATCH --gpus-per-node=2
+#SBATCH --gpus=1
+#SBATCH --gpus-per-node=1
 #SBATCH --job-name=RECSYS
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=36
-#SBATCH --time=23:59:00
-#SBATCH --mem=234G
+#SBATCH --cpus-per-task=12
+#SBATCH --time=00:59:00
+#SBATCH --mem=64GB
 #SBATCH --output=/home/scur1595/MTRec-RecSys/%A.out
 
 date
@@ -23,9 +23,7 @@ source $WORK_DIR/.venv/bin/activate
 
 
 export HF_DATASETS_CACHE=/scratch-local/scur1595/
+rm -rf $HF_DATASETS_CACHE/demo
 python -m src.recsys.train \
     --data $HF_DATASETS_CACHE \
-    --dataset large
-
-mkdir -p $HOME/data
-cp -r $HF_DATASETS_CACHE $HOME/data
+    --dataset demo --epochs 30

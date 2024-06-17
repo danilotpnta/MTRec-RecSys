@@ -252,22 +252,21 @@ class NewsDataset(Dataset):
         ]
         # =>
         history_input = torch.from_numpy(history_input).squeeze()
-        candidate_input = torch.from_numpy(candidate_input).squeeze()
-        y = torch.tensor(batch[DEFAULT_LABELS_COL], dtype=torch.float32).squeeze()
+        # candidate_input = torch.from_numpy(candidate_input).squeeze()
+        # y = torch.tensor(batch[DEFAULT_LABELS_COL], dtype=torch.float32).squeeze()
         category = torch.from_numpy(self.aux_cat_lookup_matrix[_hist]).long().squeeze()
-
-        # labels_item = np.array(batch[DEFAULT_LABELS_COL][0])
-        # idx = np.argsort(labels_item)
-        # pos_idx_start = list(labels_item[idx]).index(1)
-        # pos_idxs = batch_random_choice_with_reset(idx[pos_idx_start:], 1)
-        # neg_idxs = batch_random_choice_with_reset(idx[:pos_idx_start], self.max_labels-1)
-        # #pos_idxs = np.random.choice(idx[pos_idx_start:], size=(1,), replace=False)
-        # #neg_idxs = np.random.choice(idx[:pos_idx_start], size=(self.max_labels-1,), replace=False)
-        # idx = np.concatenate((neg_idxs, pos_idxs))
-        # #shuffle(idx)
+        labels_item = np.array(batch[DEFAULT_LABELS_COL][0])
+        idx = np.argsort(labels_item)
+        pos_idx_start = labels_item[idx].argmax()
+        pos_idxs = batch_random_choice_with_reset(idx[pos_idx_start:], 1)
+        neg_idxs = batch_random_choice_with_reset(idx[:pos_idx_start], self.max_labels-1)
+        #pos_idxs = np.random.choice(idx[pos_idx_start:], size=(1,), replace=False)
+        #neg_idxs = np.random.choice(idx[:pos_idx_start], size=(self.max_labels-1,), replace=False)
+        idx = np.concatenate((neg_idxs, pos_idxs))
+        #shuffle(idx)
         # history_input = torch.tensor(history_input).squeeze().bfloat16()
-        # candidate_input = torch.tensor(candidate_input[0][idx]).squeeze().bfloat16()
-        # y = torch.tensor(labels_item[idx], dtype=torch.bfloat16).squeeze()
+        candidate_input = torch.from_numpy(candidate_input[0][idx]).squeeze()
+        y = torch.from_numpy(labels_item[idx]).float().squeeze()
         # ========================
         return history_input, candidate_input, category, y
 
