@@ -417,20 +417,16 @@ class NewsDataModule(LightningDataModule):
     def _download_test(self):
         # Download the dataset
         url = CHALLENGE_DATASET["test"]
-        savefolder = os.path.join(
-            self.root_path,
-            "test",
-            "ebnerd_testset",
-        )
+        savefolder = os.path.join(self.root_path, "test")
         if not os.path.exists(savefolder):
-            os.makedirs(savefolder.rpartition("/")[0], exist_ok=True)
+            os.makedirs(savefolder, exist_ok=True)
             filename = download_file(
                 url, os.path.join(savefolder, url.rpartition("/")[-1])
             )
             self.data_path = unzip_file(filename, savefolder)
             os.remove(filename)
-        else:
-            self.data_path = savefolder
+        
+        self.data_path = os.path.join(self.root_path, "test", "ebnerd_testset")
 
     def setup(self, stage: str = None):
         match stage:
@@ -488,7 +484,7 @@ class NewsDataModule(LightningDataModule):
                 # Otherwise, test.
                 if not hasattr(self, "test_dataset"):
                     self._download_test()
-                    save_dir = os.path.join(self.data_path, "test", "preprocessed")
+                    save_dir = os.path.join(self.data_path, "preprocessed")
 
                     if os.path.exists(save_dir):
                         self.test_dataset = NewsDataset.from_preprocessed(save_dir)
