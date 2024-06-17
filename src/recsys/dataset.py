@@ -285,20 +285,25 @@ class NewsDataModule(LightningDataModule):
 
     def _collate_fn(self, batch):
         histories, candidates, y = zip(*batch)
+        batch_size, history_size = len(histories), len(histories[0])
+        histories_flat = [item for sublist in histories for item in sublist]
         histories = self.tokenizer(
-            histories,
+            histories_flat,
             padding=True,
             truncation=True,
             max_length=self.max_length,
             return_tensors="pt",
         )
+        histories = {k: v.view(batch_size, history_size, -1) for k, v in histories.items()}
+        candidates_flat = [item for sublist in candidates for item in sublist]
         candidates = self.tokenizer(
-            candidates,
+            candidates_flat,
             padding=True,
             truncation=True,
             max_length=self.max_length,
             return_tensors="pt",
         )
+        candidates = {k: v.view(batch_size, self.max_labels, -1) for k, v in candidates.items()}
         y = torch.stack(y)
         return histories, candidates, y
 
