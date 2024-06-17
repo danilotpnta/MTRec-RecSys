@@ -170,8 +170,8 @@ class NewsDataset(Dataset):
 
         # Apply the function to create a new column with titles
         self.data = self.data.with_columns(
-            pl.col(DEFAULT_HISTORY_ARTICLE_ID_COL).map_elements(map_article_ids_to_titles_wrapper(article_id_to_title)).alias('history_titles'),
-            pl.col(DEFAULT_INVIEW_ARTICLES_COL).map_elements(map_article_ids_to_titles_wrapper(article_id_to_title)).alias('inview_titles'),
+            pl.col(DEFAULT_HISTORY_ARTICLE_ID_COL).map_elements(map_article_ids_to_titles_wrapper(article_id_to_title)).alias(HISTORY_TITLES_COL),
+            pl.col(DEFAULT_INVIEW_ARTICLES_COL).map_elements(map_article_ids_to_titles_wrapper(article_id_to_title)).alias(INVIEW_TITLES_COL),
         )
 
         # self.lookup_indexes = {i: val.item() for i, val in self.lookup_indexes.items()}
