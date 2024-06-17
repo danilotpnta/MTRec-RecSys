@@ -103,7 +103,7 @@ class NewsDataset(Dataset):
             "max_labels": self.max_labels,
         }
 
-        np.save(path + "/lookup_matrix.npy", self.lookup_matrix)
+        #np.save(path + "/lookup_matrix.npy", self.lookup_matrix)
         with open(path + "/parameters.json", "w") as f:
             json.dump(data, f)
         self.behaviors.write_parquet(path + "/behaviors.parquet")
