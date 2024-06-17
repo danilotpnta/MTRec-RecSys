@@ -165,7 +165,7 @@ class NewsDataset(Dataset):
             #.pipe(sort_and_select, n=self.max_labels)
             .with_columns(pl.col(DEFAULT_LABELS_COL).list.len().alias(N_SAMPLES_COL))
         )
-        article_id_to_title = self.articles.select([DEFAULT_ARTICLE_ID_COL, DEFAULT_TITLE_COL]).to_dict(as_series=False)
+        article_id_to_title = self.articles.select([DEFAULT_ARTICLE_ID_COL, DEFAULT_TITLE_COL]).collect().to_dict(as_series=False)
         article_id_to_title = dict(zip(article_id_to_title[DEFAULT_ARTICLE_ID_COL], article_id_to_title[DEFAULT_TITLE_COL]))
 
         # Apply the function to create a new column with titles
