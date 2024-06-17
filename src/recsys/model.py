@@ -170,6 +170,7 @@ class MultitaskRecommender(LightningModule):
         **kwargs,
     ):
         super().__init__()
+        self.automatic_optimization = False
 
         self.save_hyperparameters()
 
@@ -228,8 +229,13 @@ class MultitaskRecommender(LightningModule):
         self.category_loss = nn.CrossEntropyLoss()
 
     def configure_optimizers(self):
+        from recsys.utils.gradient_surgery import PCGrad
+        from lightning_fabric.utilities.types import Optimizable
+        PCGrad.__bases__ += (Optimizable,)
+        optim = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)
+        optim = PCGrad(optim)
         print(f"Learning rate: {self.hparams.lr}")
-        return torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)
+        return optim
 
     def forward(self, history, candidates):
         """
@@ -271,7 +277,18 @@ class MultitaskRecommender(LightningModule):
         ).float()
         category_loss = self.category_loss(category_scores, category)
 
-        loss = news_ranking_loss + category_loss
+        # Gradient Surgery
+        # ================
+        optimizer = self.optimizers()
+        optimizer.zero_grad()
+
+        aux_loss = 0.3 * category_loss
+        loss = news_ranking_loss + aux_loss
+
+        optimizer.optimizer.pc_backward([news_ranking_loss, aux_loss])
+        optimizer.step()
+        # ================
+
         self.log("train/loss", loss, prog_bar=True)
         self.log("train/news_ranking_loss", news_ranking_loss)
         self.log("train/category_loss", category_loss)
@@ -300,7 +317,7 @@ class MultitaskRecommender(LightningModule):
     def on_validation_epoch_end(self) -> None:
         super().on_validation_epoch_end()
         metrics = self.metric_evaluator.evaluate()
-        self.log_dict({f"validation/{k}":v for k, v in metrics.evaluations.items()})
+        self.log_dict({f"validation/{k}": v for k, v in metrics.evaluations.items()})
 
     def test_step(self, batch, batch_idx):
         history, candidates, category, _ = batch
