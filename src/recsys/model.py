@@ -258,7 +258,7 @@ class BERTMultitaskRecommender(LightningModule):
     The main prediction model for the multi-task recommendation system with BERT fine-tuning.
     """
 
-    def __init__(self, num_classes, category_num_cls, lr=1e-3, wd=0.0, **kwargs):
+    def __init__(self, lr=1e-3, wd=0.0, **kwargs):
         super().__init__()
 
         self.save_hyperparameters()

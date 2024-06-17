@@ -3,7 +3,7 @@ import argparse
 from pytorch_lightning import Trainer, seed_everything
 
 from recsys.dataset import NewsDataModule
-from recsys.model import MultitaskRecommender
+from recsys.model import BERTMultitaskRecommender
 
 
 def arg_list():
@@ -50,9 +50,9 @@ def main():
     )
 
     if args.load_from_checkpoint:
-        model = MultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
+        model = BERTMultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
     else:
-        model = MultitaskRecommender(args.hidden_dim, nhead=args.nhead, num_layers=args.num_layers, lr=args.lr, wd=args.wd)
+        model = BERTMultitaskRecommender(args.hidden_dim, nhead=args.nhead, num_layers=args.num_layers, lr=args.lr, wd=args.wd)
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume_from_checkpoint)
 
 
