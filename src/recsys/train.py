@@ -38,7 +38,8 @@ def main():
         batch_size=args.bs,
         dataset=args.dataset,
         embeddings=args.embeddings_type,
-        num_workers=args.num_workers
+        num_workers=args.num_workers,
+        padding_value=None
     )
 
     trainer = Trainer(
