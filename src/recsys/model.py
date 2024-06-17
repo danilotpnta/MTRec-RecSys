@@ -264,8 +264,10 @@ class BERTMultitaskRecommender(LightningModule):
         self.save_hyperparameters()
         self.predictions = []
         self.labels = []
-        self.bert = BertModel.from_pretrained("bert-base-uncased")
-        self.head = nn.Linear(self.bert.config.hidden_size, num_classes+3+category_num_cls) # 3 for ner
+        self.bert = BertModel.from_pretrained("google-bert/bert-base-multilingual-cased")
+        #self.head = nn.Linear(self.bert.config.hidden_size, num_classes+3+category_num_cls) # 3 for ner
+        self.W = nn.Linear(self.bert.config.hidden_size, self.bert.config.hidden_size)
+        self.q = nn.Parameter(torch.randn(self.bert.config.hidden_size))
         self.metric_evaluator = MetricEvaluator(
             self.labels,
             self.predictions,
@@ -328,11 +330,26 @@ class BERTMultitaskRecommender(LightningModule):
         # Maybe integrate our own BERT and finetune it? 
         # history = self.transformer(history)
         # user_embedding = self.transformer(history).mean(dim=1)
-        history = self.bert(history).last_hidden_state
+        batch_size, hist_size, seq_len = history["input_ids"].size()
+        history["input_ids"] = history["input_ids"].view(batch_size*hist_size, seq_len)
+        history["attention_mask"] = history["attention_mask"].view(batch_size*hist_size, seq_len)
+        history["token_type_ids"] = history["token_type_ids"].view(batch_size*hist_size, seq_len)
+        history = self.bert(**history).last_hidden_state[:, 0, :].view(batch_size, hist_size, -1)
+
+        batch_size, cand_size, seq_len = candidates["input_ids"].size()
+        candidates["input_ids"] = candidates["input_ids"].view(batch_size*cand_size, seq_len)
+        candidates["attention_mask"] = candidates["attention_mask"].view(batch_size*cand_size, seq_len)
+        candidates["token_type_ids"] = candidates["token_type_ids"].view(batch_size*cand_size, seq_len)
+        candidates = self.bert(**candidates).last_hidden_state[:, 0, :].view(batch_size, cand_size, -1)
+
+        att = self.q * F.tanh(self.W(history))
+        att_weight = F.softmax(att, dim=1)
+        # print(f"{att_weight.shape=}")
+
+        user_embedding = torch.sum(history * att_weight, dim = 1)
+
         # Normalization in order to reduce the variance of the dot product
-        scores = torch.bmm(
-            F.normalize(candidates), F.normalize(user_embedding.unsqueeze(-1))
-        )
+        scores = torch.bmm(candidates, user_embedding.unsqueeze(-1))
         return scores.squeeze(-1)
 
     def training_step(self, batch, batch_idx):

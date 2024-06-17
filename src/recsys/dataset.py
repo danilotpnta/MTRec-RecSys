@@ -43,7 +43,8 @@ COLUMNS = [
 
 DEFAULT_TOKENS_COL = "tokens"
 N_SAMPLES_COL = "n_samples"
-
+HISTORY_TITLES_COL = 'history_titles'
+INVIEW_TITLES_COL = 'inview_titles'
 
 class NewsDataset(Dataset):
     behaviors: pl.DataFrame
@@ -164,41 +165,16 @@ class NewsDataset(Dataset):
             #.pipe(sort_and_select, n=self.max_labels)
             .with_columns(pl.col(DEFAULT_LABELS_COL).list.len().alias(N_SAMPLES_COL))
         )
+        article_id_to_title = self.articles.select([DEFAULT_ARTICLE_ID_COL, DEFAULT_TITLE_COL]).to_dict(as_series=False)
+        article_id_to_title = dict(zip(article_id_to_title[DEFAULT_ARTICLE_ID_COL], article_id_to_title[DEFAULT_TITLE_COL]))
 
-        assert (
-            embeddings_path is not None
-        ), "You need to provide a path to the embeddings file."
-        embeddings = pl.read_parquet(embeddings_path)
-
-        self.articles = (
-            self.articles.lazy()
-            .join(embeddings.lazy(), on=DEFAULT_ARTICLE_ID_COL, how="inner")
-            .rename({embeddings.columns[-1]: DEFAULT_TOKENS_COL})
-            .collect()
-        )
-
-        article_dict = create_lookup_dict(
-            self.articles.select(DEFAULT_ARTICLE_ID_COL, DEFAULT_TOKENS_COL),
-            key=DEFAULT_ARTICLE_ID_COL,
-            value=DEFAULT_TOKENS_COL,
-        )
-
-        self.lookup_indexes, self.lookup_matrix = create_lookup_objects(
-            article_dict, unknown_representation="zeros"
+        # Apply the function to create a new column with titles
+        self.data = self.data.with_columns(
+            pl.col(DEFAULT_HISTORY_ARTICLE_ID_COL).map_elements(map_article_ids_to_titles_wrapper(article_id_to_title)).alias('history_titles'),
+            pl.col(DEFAULT_INVIEW_ARTICLES_COL).map_elements(map_article_ids_to_titles_wrapper(article_id_to_title)).alias('inview_titles'),
         )
 
         # self.lookup_indexes = {i: val.item() for i, val in self.lookup_indexes.items()}
-        self.data = self.data.pipe(
-            map_list_article_id_to_value,
-            behaviors_column=DEFAULT_HISTORY_ARTICLE_ID_COL,
-            mapping=self.lookup_indexes,
-            fill_nulls=[0],
-        ).pipe(
-            map_list_article_id_to_value,
-            behaviors_column=DEFAULT_INVIEW_ARTICLES_COL,
-            mapping=self.lookup_indexes,
-            fill_nulls=[0],
-        )
 
         self.data = PolarsDataFrameWrapper(self.data)
 
@@ -219,12 +195,8 @@ class NewsDataset(Dataset):
         """
 
         batch = self.data[index]
-        history_input = self.lookup_matrix[
-            batch[DEFAULT_HISTORY_ARTICLE_ID_COL].to_list()
-        ]
-        candidate_input = self.lookup_matrix[
-            batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()
-        ]
+        history_input = batch[HISTORY_TITLES_COL][0].to_list()
+        candidate_input = batch[INVIEW_TITLES_COL][0]
         # =>
         labels_item = np.array(batch[DEFAULT_LABELS_COL][0])
         idx = np.argsort(labels_item)
@@ -235,8 +207,8 @@ class NewsDataset(Dataset):
         #neg_idxs = np.random.choice(idx[:pos_idx_start], size=(self.max_labels-1,), replace=False)
         idx = np.concatenate((neg_idxs, pos_idxs))
         #shuffle(idx)
-        history_input = torch.tensor(history_input).squeeze().bfloat16()
-        candidate_input = torch.tensor(candidate_input[0][idx]).squeeze().bfloat16()
+        #history_input = torch.tensor(history_input).squeeze().bfloat16()
+        candidate_input = candidate_input[idx].to_list()
         y = torch.tensor(labels_item[idx], dtype=torch.bfloat16).squeeze()
         # ========================
         return history_input, candidate_input, y
@@ -271,7 +243,7 @@ class NewsDataModule(LightningDataModule):
         self.dataset = dataset
         self.embeddings = embeddings
 
-        self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+        self.tokenizer = AutoTokenizer.from_pretrained('bert-base-multilingual-uncased')
 
     def prepare_data(self):
         # Download the dataset
@@ -312,7 +284,23 @@ class NewsDataModule(LightningDataModule):
         raise FileNotFoundError("No parquet file found in the embeddings directory.")
 
     def _collate_fn(self, batch):
-        
+        histories, candidates, y = zip(*batch)
+        histories = self.tokenizer(
+            histories,
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt",
+        )
+        candidates = self.tokenizer(
+            candidates,
+            padding=True,
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt",
+        )
+        y = torch.stack(y)
+        return histories, candidates, y
 
     def setup(self, stage: str):
         match stage:
@@ -372,6 +360,7 @@ class NewsDataModule(LightningDataModule):
             shuffle=True,
             num_workers=self.num_workers,
             pin_memory=bool(self.num_workers),
+            collate_fn=self._collate_fn,
         )
 
     def val_dataloader(self):
@@ -381,6 +370,7 @@ class NewsDataModule(LightningDataModule):
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=bool(self.num_workers),
+            collate_fn=self._collate_fn,
         )
 
     def test_dataloader(self):
@@ -390,6 +380,7 @@ class NewsDataModule(LightningDataModule):
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=bool(self.num_workers),
+            collate_fn=self._collate_fn,
         )
 
 
@@ -440,6 +431,12 @@ def batch_random_choice_with_reset(population, num_choices):
 
     return np.array(choices)
 
+
+# Define a function to map article IDs to titles
+def map_article_ids_to_titles_wrapper(article_id_to_title):
+    def map_article_ids_to_titles(article_ids):
+        return [article_id_to_title.get(article_id, None) for article_id in article_ids]
+    return map_article_ids_to_titles
 
 
 def map_list_article_id_to_value(
