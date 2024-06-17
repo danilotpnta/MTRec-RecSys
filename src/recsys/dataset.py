@@ -3,7 +3,7 @@ from random import shuffle
 from typing import Any, Literal
 from recsys.utils.classes import PolarsDataFrameWrapper
 from recsys.utils.download import CHALLENGE_DATASET, download_file, unzip_file
-
+from transformers import AutoTokenizer
 import numpy as np
 import polars as pl
 import torch
@@ -271,6 +271,8 @@ class NewsDataModule(LightningDataModule):
         self.dataset = dataset
         self.embeddings = embeddings
 
+        self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+
     def prepare_data(self):
         # Download the dataset
         url = CHALLENGE_DATASET[self.dataset]
@@ -308,6 +310,9 @@ class NewsDataModule(LightningDataModule):
                     self.embeddings_path = os.path.join(root, file)
                     return
         raise FileNotFoundError("No parquet file found in the embeddings directory.")
+
+    def _collate_fn(self, batch):
+        
 
     def setup(self, stage: str):
         match stage:

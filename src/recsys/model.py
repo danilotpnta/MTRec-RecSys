@@ -12,6 +12,8 @@ from ebrec.evaluation.metrics_protocols import (
     AccuracyScore,
     F1Score,
 )
+from transformers import AutoTokenizer, BertModel
+
 
 # Setting to get more matmul performance on Tensor Core capable machines.
 torch.set_float32_matmul_precision('medium')
@@ -189,6 +191,7 @@ class MultitaskRecommender(LightningModule):
             self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
         )
 
+    
     def forward(self, history, candidates):
         """
         LEGEND:
@@ -208,6 +211,124 @@ class MultitaskRecommender(LightningModule):
         # history = self.transformer(history)
         # user_embedding = self.transformer(history).mean(dim=1)
         user_embedding = self.user_encoder(history)
+        # Normalization in order to reduce the variance of the dot product
+        scores = torch.bmm(
+            F.normalize(candidates), F.normalize(user_embedding.unsqueeze(-1))
+        )
+        return scores.squeeze(-1)
+
+    def training_step(self, batch, batch_idx):
+        history, candidates, labels = batch
+        scores = self(history, candidates)
+
+        loss = self.criterion(scores, labels)
+
+        self.log("train_loss", loss, prog_bar=True)
+        return loss
+
+    def on_validation_epoch_start(self) -> None:
+        super().on_validation_epoch_start()
+
+        self.predictions.clear()
+        self.labels.clear()
+
+    def validation_step(self, batch, batch_idx):
+        history, candidates, labels = batch
+        scores = self(history, candidates)
+
+        loss = self.criterion(scores, labels)
+        
+        accuracy = self.accuracy(scores, labels)
+        self.log("val_accuracy", accuracy, prog_bar=True) 
+        self.log("val_loss", loss, prog_bar=True)
+        self.predictions.append(scores.detach().cpu().flatten().float().numpy())
+        self.labels.append(labels.detach().cpu().flatten().float().numpy())
+
+    def on_validation_epoch_end(self) -> None:
+        super().on_validation_epoch_end()
+        metrics = self.metric_evaluator.evaluate()
+        self.log_dict(metrics.evaluations)
+
+    def test_step(self, batch, batch_idx):
+        return self.validation_step(batch, batch_idx)
+
+
+class BERTMultitaskRecommender(LightningModule):
+    """
+    The main prediction model for the multi-task recommendation system with BERT fine-tuning.
+    """
+
+    def __init__(self, num_classes, category_num_cls, lr=1e-3, wd=0.0, **kwargs):
+        super().__init__()
+
+        self.save_hyperparameters()
+        self.predictions = []
+        self.labels = []
+        self.bert = BertModel.from_pretrained("bert-base-uncased")
+        self.head = nn.Linear(self.bert.config.hidden_size, num_classes+3+category_num_cls) # 3 for ner
+        self.metric_evaluator = MetricEvaluator(
+            self.labels,
+            self.predictions,
+            metric_functions=[
+                AucScore(),
+                MrrScore(),
+                NdcgScore(k=10),
+                NdcgScore(k=5),
+                LogLossScore(),
+                RootMeanSquaredError(),
+                F1Score(),
+            ],
+        )
+        
+        from torchmetrics import Accuracy
+        self.accuracy = Accuracy(task="multiclass", num_classes=5)
+        
+        # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
+        # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
+        # Would be good if we can find a rationale for this in the literature.
+        # self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.ones(1) * 4)
+
+        # # Question: Will it understand this dimensionality? A: Probably yes.
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+
+        # # Question: Is pos weight correct? TODO: Experiment with both. 
+        self.criterion = nn.CrossEntropyLoss()
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(
+            self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
+        )
+
+    def forward(self, history, candidates):
+        """
+        LEGEND:
+        B - batch size (keep in mind we use an unusual mini-batch approach)
+        H - history size (number of articles in the history, usually 30)
+        C - candidate length 
+        D - hidden size (768)
+        history:    B x H x D
+        candidates: B x C x D
+        
+        Returns:
+        B x C scores
+        """
+        # Implement a baseline: LinearRegression, SVM?
+        # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
+        # Maybe integrate our own BERT and finetune it? 
+        # history = self.transformer(history)
+        # user_embedding = self.transformer(history).mean(dim=1)
+        history = self.bert(history).last_hidden_state
         # Normalization in order to reduce the variance of the dot product
         scores = torch.bmm(
             F.normalize(candidates), F.normalize(user_embedding.unsqueeze(-1))
