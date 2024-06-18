@@ -1,7 +1,8 @@
 import argparse
 
 from pytorch_lightning import Trainer, seed_everything
-
+from lightning.pytorch.callbacks import LearningRateMonitor
+from lightning.pytorch.loggers import TensorBoardLogger
 from recsys.dataset import NewsDataModule
 from recsys.model import BERTMultitaskRecommender
 
@@ -48,20 +49,24 @@ def main():
         num_workers=args.num_workers,
         padding_value=None
     )
-
+    
+    lr_monitor = LearningRateMonitor(logging_interval='step')
     trainer = Trainer(
         max_epochs=args.epochs,
         num_sanity_val_steps=1,
         # gradient_clip_val=0.3,
         check_val_every_n_epoch=args.check_val_every_n_epoch,
         precision="bf16-mixed",
-        # profiler="advanced"
+        log_every_n_steps=1,
+        profiler="advanced",
+        callbacks=[lr_monitor],
+        logger=TensorBoardLogger("lightning_logs", name="bert_recommender"),
     )
 
     if args.load_from_checkpoint:
         model = BERTMultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
     else:
-        model = BERTMultitaskRecommender(lr=args.lr, wd=args.wd)
+        model = BERTMultitaskRecommender(epochs=args.epochs, lr=args.lr, wd=args.wd, batch_size=args.bs)
         datamodule.prepare_data()
         datamodule.setup()
 
