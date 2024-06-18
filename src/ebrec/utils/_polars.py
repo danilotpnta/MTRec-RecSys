@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import json
+from typing import overload
 
 try:
     import polars as pl
@@ -65,12 +66,34 @@ def _validate_equal_list_column_lengths(df: pl.DataFrame, col1: str, col2: str) 
         )
 
 
+@overload
 def slice_join_dataframes(
     df1: pl.DataFrame,
     df2: pl.DataFrame,
     on: str,
     how: str,
 ) -> pl.DataFrame:
+    """
+    Join two dataframes optimized for memory efficiency.
+    """
+    return pl.concat(
+        (
+            rows.join(
+                df2,
+                on=on,
+                how=how,
+            )
+            for rows in df1.iter_slices()
+        )
+    )
+
+
+def slice_join_dataframes(
+    df1: pl.LazyFrame,
+    df2: pl.LazyFrame,
+    on: str,
+    how: str,
+) -> pl.LazyFrame:
     """
     Join two dataframes optimized for memory efficiency.
     """
