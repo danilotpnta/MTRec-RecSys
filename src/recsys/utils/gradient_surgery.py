@@ -2,9 +2,10 @@ import torch
 import numpy as np
 import copy
 import random
-from abc import ABC
+from lightning_fabric.utilities.types import Optimizable
 
-class PCGrad(ABC):
+
+class PCGrad(Optimizable):
     def __init__(self, optimizer, reduction='mean'):
         self._optim, self._reduction = optimizer, reduction
         return

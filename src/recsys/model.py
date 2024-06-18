@@ -1,17 +1,18 @@
-from pytorch_lightning import LightningModule
 import torch
-from torch import nn
-from torch.nn import functional as F
-from ebrec.evaluation.metrics_protocols import MetricEvaluator
 from ebrec.evaluation.metrics_protocols import (
+    AccuracyScore,
     AucScore,
+    F1Score,
+    LogLossScore,
+    MetricEvaluator,
     MrrScore,
     NdcgScore,
-    LogLossScore,
     RootMeanSquaredError,
-    AccuracyScore,
-    F1Score,
 )
+from pytorch_lightning import LightningModule
+from recsys.utils.gradient_surgery import PCGrad
+from torch import nn
+from torch.nn import functional as F
 
 # Setting to get more matmul performance on Tensor Core capable machines.
 torch.set_float32_matmul_precision("medium")
@@ -199,8 +200,7 @@ class MultitaskRecommender(LightningModule):
         )
 
         # from torchmetrics.retrieval import RetrievalAUROC
-        from torchmetrics.classification import MultilabelAccuracy
-        from torchmetrics.classification import MultilabelAUROC
+        from torchmetrics.classification import MultilabelAccuracy, MultilabelAUROC
 
         self.accuracy = MultilabelAccuracy(num_labels=5)
         self.auroc = MultilabelAUROC(num_labels=5)
@@ -229,9 +229,6 @@ class MultitaskRecommender(LightningModule):
         self.category_loss = nn.CrossEntropyLoss()
 
     def configure_optimizers(self):
-        from recsys.utils.gradient_surgery import PCGrad
-        from lightning_fabric.utilities.types import Optimizable
-        PCGrad.__bases__ += (Optimizable,)
         optim = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)
         optim = PCGrad(optim)
         print(f"Learning rate: {self.hparams.lr}")
