@@ -11,9 +11,7 @@
             "module": "src.recsys.train",
             "args": [
                 "--data",
-                "data/demo",
-                "--embeddings_path",
-                "data/FacebookAI-xlm-roberta-base/FacebookAI_xlm_roberta_base/xlm_roberta_base.parquet"
+                "data",
             ]
         }
     ]
