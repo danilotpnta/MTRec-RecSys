@@ -168,6 +168,7 @@ class MultitaskRecommender(LightningModule):
         n_categories=5,
         lr=1e-2,
         wd=0.0,
+        use_gradient_surgery=False,
         **kwargs,
     ):
         super().__init__()
@@ -230,7 +231,8 @@ class MultitaskRecommender(LightningModule):
 
     def configure_optimizers(self):
         optim = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)
-        optim = PCGrad(optim)
+        if self.hparams.use_gradient_surgery:
+            optim = PCGrad(optim)
         print(f"Learning rate: {self.hparams.lr}")
         return optim
 
@@ -281,8 +283,11 @@ class MultitaskRecommender(LightningModule):
 
         aux_loss = 0.3 * category_loss
         loss = news_ranking_loss + aux_loss
-
-        optimizer.optimizer.pc_backward([news_ranking_loss, aux_loss])
+        
+        if self.hparams.use_gradient_surgery:
+            optimizer.optimizer.pc_backward([news_ranking_loss, aux_loss])
+        else:
+            loss.backward()
         optimizer.step()
         # ================
 
