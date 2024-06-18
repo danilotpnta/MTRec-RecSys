@@ -391,14 +391,14 @@ class NewsDataset(NewsDatasetOG):
         )
 
         # Apply the function to create a new column with titles
-        self.data = self.data.with_columns(
+        self.data = self.data.lazy().with_columns(
             pl.col(DEFAULT_HISTORY_ARTICLE_ID_COL)
             .map_elements(map_article_ids_to_titles_wrapper(article_id_to_title))
             .alias(HISTORY_TITLES_COL),
             pl.col(DEFAULT_INVIEW_ARTICLES_COL)
             .map_elements(map_article_ids_to_titles_wrapper(article_id_to_title))
             .alias(INVIEW_TITLES_COL),
-        )
+        ).collect()
 
         # # self.lookup_indexes = {i: val.item() for i, val in self.lookup_indexes.items()}
         # self.data = (
@@ -437,14 +437,14 @@ class NewsDataset(NewsDatasetOG):
         history_input = batch[HISTORY_TITLES_COL][0].to_list()
         candidate_input = batch[INVIEW_TITLES_COL][0]
         # =>
-        history_input = torch.from_numpy(history_input).squeeze()
+        # history_input = torch.tensor(history_input).squeeze()
         # category = torch.from_numpy(self.aux_cat_lookup_matrix[_hist]).long().squeeze()
 
         # Early return for test mode
         # ========================
         if self.test_mode:
-            candidates = torch.from_numpy(candidate_input).squeeze()
-            return history_input, candidates
+            # candidates = torch.tensor(candidate_input).squeeze()
+            return history_input, candidate_input
         # ========================
 
         # Otherwise, prepare the labels
