@@ -448,9 +448,9 @@ class BERTMultitaskRecommender(LightningModule):
 
         loss = self.criterion(scores, labels)
         
-        accuracy = self.accuracy(scores, labels)
+        accuracy = self.accuracy(scores.float(), labels.float())
         self.log("val_accuracy", accuracy, prog_bar=True) 
-        self.log("val_loss", loss, prog_bar=True)
+        self.log("val_loss", loss.float().item(), prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())
 
