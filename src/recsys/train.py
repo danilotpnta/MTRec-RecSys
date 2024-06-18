@@ -29,6 +29,7 @@ def arg_list():
     parser.add_argument("--nhead", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument("--use_gradient_surgery", action="store_true")
     return parser.parse_args()
 
 
@@ -69,12 +70,13 @@ def main():
             n_categories=datamodule.train_dataset.max_categories,
             lr=args.lr,
             wd=args.wd,
+            use_gradient_surgery=args.use_gradient_surgery,
         )
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume_from_checkpoint)
 
     # Make predictions on the test set
-    preds = trainer.test(model, datamodule=datamodule)
-    print(preds)
+    # preds = trainer.test(model, datamodule=datamodule)
+    # print(preds)
 
 
 if __name__ == "__main__":
