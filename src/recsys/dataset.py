@@ -296,7 +296,7 @@ class NewsDataModule(LightningDataModule):
             ) for history in histories
         ]
         histories = [
-            {k: torch.cat((torch.full((batch_size - len(v), self.max_length), self.tokenizer.pad_token_id), v))
+            {k: torch.cat((torch.full((self.history_size - len(v), self.max_length), self.tokenizer.pad_token_id), v))
                     for k, v in history.items()
             }
             for history in histories
