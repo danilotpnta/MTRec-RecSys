@@ -135,7 +135,10 @@ class MTRec(nn.Module):
 
 class NLLLoss(nn.Module):
     def forward(self, preds, target):
-        preds = preds.sigmoid()
+        # preds = preds.sigmoid()
+        # print(target)
+        # print(preds.where(target == 1, -torch.inf))
+        # exit()
         return -torch.log(
             preds.where(target == 1, -torch.inf).exp().sum(dim=-1, keepdims=True)
             / (preds.exp().sum(dim=-1, keepdims=True))
@@ -166,7 +169,7 @@ class MultitaskRecommender(LightningModule):
         self,
         hidden_dim,
         nhead=8,
-        num_layers=4,
+        num_layers=2,
         n_categories=5,
         lr=1e-2,
         wd=0.0,
@@ -174,7 +177,7 @@ class MultitaskRecommender(LightningModule):
         **kwargs,
     ):
         super().__init__()
-        self.automatic_optimization = False
+        self.automatic_optimization = use_gradient_surgery
 
         self.save_hyperparameters()
 
@@ -228,7 +231,8 @@ class MultitaskRecommender(LightningModule):
         # [0.1, 0.2, 0.3, 0.4, 0.5]
 
         # self.criterion = NLLLoss()
-        self.criterion = nn.CrossEntropyLoss()
+        self.linear = nn.Linear(768*2, 1)
+        self.criterion = NLLLoss()
         self.category_loss = nn.CrossEntropyLoss()
 
     def configure_optimizers(self):
@@ -261,10 +265,29 @@ class MultitaskRecommender(LightningModule):
         # user_embedding = (user_embedding.softmax(dim=1) * user_embedding).sum(dim=1)
         user_embedding = self.user_encoder(history)
         # Normalization in order to reduce the variance of the dot product
+        
+        
+        b, c, d = candidates.size()
+        # noise = torch.randn((b,c,d), device=self.device)
+        # candidates = candidates + noise
+
+        candidates = self.transformer(candidates)
         scores = torch.bmm(
-            F.normalize(candidates), F.normalize(user_embedding.unsqueeze(-1))
+            F.normalize(candidates, dim=-1), F.normalize(user_embedding.unsqueeze(-1), dim=1)
+            # candidates, user_embedding.unsqueeze(-1)
         )
-        return scores.squeeze(-1)
+        print(scores)
+        print(candidates)
+        exit()
+        scores = scores.squeeze(-1).softmax(-1)
+        # print(candidates, candidates.mean(-1), candidates.std(-1))
+        # exit()
+        
+        # print(user_embedding.unsqueeze(1).repeat(1,c,1).shape)
+        
+        # cat = torch.cat([candidates, user_embedding.unsqueeze(1).repeat(1, c, 1)], dim=-1) # B x C x 2D
+        # scores = self.linear(cat) # ??? 
+        return scores
 
     def training_step(self, batch, batch_idx):
         history, candidates, category, labels = batch
@@ -272,6 +295,11 @@ class MultitaskRecommender(LightningModule):
 
         # News Ranking Loss
         news_ranking_loss = self.criterion(scores, labels)
+        # print(f"{news_ranking_loss=}")
+        # print(candidates)
+        # print(labels)
+        # print(scores)
+        # exit()
         category_scores = self.category_encoder(history)
 
         category = torch.nn.functional.one_hot(
@@ -279,19 +307,16 @@ class MultitaskRecommender(LightningModule):
         ).float()
         category_loss = self.category_loss(category_scores, category)
 
+        aux_loss = 0.3 * category_loss
+        loss = news_ranking_loss
         # Gradient Surgery
         # ================
-        optimizer = self.optimizers()
-        optimizer.zero_grad()
-
-        aux_loss = 0.3 * category_loss
-        loss = news_ranking_loss + aux_loss
-        
         if self.hparams.use_gradient_surgery:
+            optimizer = self.optimizers()
+            optimizer.zero_grad()
+
             optimizer.optimizer.pc_backward([news_ranking_loss, aux_loss])
-        else:
-            loss.backward()
-        optimizer.step()
+            optimizer.step()
         # ================
 
         self.log("train/loss", loss, prog_bar=True)

@@ -19,6 +19,13 @@ cd $WORK_DIR
 
 module load 2023
 module load PyTorch/2.1.2-foss-2023a-CUDA-12.1.1
+
+ssh gcn1
+cd WORK_DIR
+pip install -e .
+
+
+
 source $WORK_DIR/.venv/bin/activate
 
 
