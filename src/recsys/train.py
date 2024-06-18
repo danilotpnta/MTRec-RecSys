@@ -47,7 +47,8 @@ def main():
         # gradient_clip_val=0.3,
         check_val_every_n_epoch=args.check_val_every_n_epoch,
         precision="bf16-mixed",
-        # profiler="advanced"
+        log_every_n_steps=1,
+        profiler="advanced"
     )
 
     if args.load_from_checkpoint:
