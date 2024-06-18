@@ -333,7 +333,7 @@ class BERTMultitaskRecommender(LightningModule):
     The main prediction model for the multi-task recommendation system with BERT fine-tuning.
     """
 
-    def __init__(self, lr=1e-3, wd=0.0, **kwargs):
+    def __init__(self, epochs=10, lr=1e-3, wd=0.0, **kwargs):
         super().__init__()
 
         self.save_hyperparameters()
@@ -383,9 +383,14 @@ class BERTMultitaskRecommender(LightningModule):
         self.criterion = nn.CrossEntropyLoss()
 
     def configure_optimizers(self):
-        return torch.optim.Adam(
+        optimizer = torch.optim.Adam(
             self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
         )
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, max_lr=self.lr, pct_start=0.01, steps_per_epoch=6181*4//self.hparams.batch_size, epochs=self.hparams.epochs, anneal_strategy='linear'
+        )
+        
+        return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
     def forward(self, history, candidates):
         """
