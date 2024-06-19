@@ -422,7 +422,7 @@ class BERTMultitaskRecommender(LightningModule):
 
         loss = self.criterion(scores, labels)
 
-        self.log("train_loss", loss, prog_bar=True)
+        self.log("train/loss", loss, prog_bar=True)
         return loss
 
     def on_validation_epoch_start(self) -> None:
@@ -442,15 +442,15 @@ class BERTMultitaskRecommender(LightningModule):
         loss = self.criterion(scores, labels)
         
         accuracy = self.accuracy(scores.float(), labels.float())
-        self.log("val_accuracy", accuracy, prog_bar=True) 
-        self.log("val_loss", loss.float().item(), prog_bar=True)
+        self.log("validation/accuracy", accuracy)
+        self.log("validation/loss", loss, prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())
 
     def on_validation_epoch_end(self) -> None:
         super().on_validation_epoch_end()
         metrics = self.metric_evaluator.evaluate()
-        self.log_dict(metrics.evaluations)
+        self.log_dict({f"validation/{k}": v for k, v in metrics.evaluations.items()})
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
