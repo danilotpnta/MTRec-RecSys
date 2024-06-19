@@ -457,7 +457,11 @@ class NewsDatasetV2(TorchDataset):
             dataset.max_categories = data["max_categories"]
             dataset.test_mode = data["test_mode"]
 
-        dataset.lookup_matrix = Dataset.load_from_disk(path + "/lookup_matrix")
+        dataset.lookup_matrix = Dataset.load_from_disk(
+            path + "/lookup_matrix", keep_in_memory=True
+        )
+        dataset.lookup_matrix = dataset.lookup_matrix.flatten_indices().with_format("torch")
+        
         dataset.behaviors = pl.read_parquet(path + "/behaviors.parquet")
         dataset.history = pl.read_parquet(path + "/history.parquet")
         dataset.articles = pl.read_parquet(path + "/articles.parquet")
@@ -510,8 +514,9 @@ class NewsDatasetV2(TorchDataset):
             DEFAULT_CATEGORY_COL,
             [0] + self.articles[DEFAULT_CATEGORY_COL].cast(pl.UInt8).to_list(),
         )
+        self.lookup_matrix = self.lookup_matrix.flatten_indices().with_format("torch")
 
-        self.max_categories = max(self.lookup_matrix[DEFAULT_CATEGORY_COL]) + 1
+        self.max_categories = self.lookup_matrix[DEFAULT_CATEGORY_COL].max().item() + 1
         self.article_id_to_idx = {
             k: i
             for i, k in enumerate([0] + self.articles[DEFAULT_ARTICLE_ID_COL].to_list())
@@ -592,8 +597,9 @@ class NewsDatasetV2(TorchDataset):
             self.lookup_matrix[_]
             for _ in batch[DEFAULT_HISTORY_ARTICLE_ID_COL].to_list()
         )
+        
         histories = {
-            key: torch.tensor([val[key] for val in _hist])
+            key: torch.cat([val[key] for val in _hist])
             for key in self.lookup_matrix.features.keys()
         }
 
@@ -606,7 +612,7 @@ class NewsDatasetV2(TorchDataset):
         if self.test_mode:
             # Special treatment, as they are not guaranteed to be of the same length
             candidates = {
-                key: [torch.tensor(val[key]) for val in _cand]
+                key: [val[key] for val in _cand]
                 for key in self.lookup_matrix.features.keys()
             }
             return histories, candidates
@@ -614,7 +620,7 @@ class NewsDatasetV2(TorchDataset):
 
         labels = batch[DEFAULT_LABELS_COL].to_list()
         candidates = {
-            key: torch.tensor([val[key] for val in _cand])
+            key: torch.cat([val[key] for val in _cand])
             for key in self.lookup_matrix.features.keys()
         }
         y = torch.tensor(labels).float().squeeze()
@@ -789,7 +795,7 @@ class NewsDataModule(LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
-            pin_memory=bool(self.num_workers),
+            pin_memory=True,
             collate_fn=collate_fn,
         )
 
@@ -799,7 +805,7 @@ class NewsDataModule(LightningDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=bool(self.num_workers),
+            pin_memory=True,
             collate_fn=collate_fn,
         )
 
@@ -809,7 +815,7 @@ class NewsDataModule(LightningDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=bool(self.num_workers),
+            pin_memory=True,
             collate_fn=collate_fn,
         )
 
@@ -842,12 +848,14 @@ def load_data(
     return df_behaviors, df_history, df_articles
 
 
-
 def collate_fn(batch):
     histories, candidates, y = zip(*batch)
-    histories = {k: torch.stack([h[k].squeeze() for h in histories]) for k in histories[0].keys()}
+    histories = {
+        k: torch.stack([h[k].squeeze() for h in histories]) for k in histories[0].keys()
+    }
     candidates = {
-        k: torch.stack([c[k].squeeze() for c in candidates]) for k in candidates[0].keys()
+        k: torch.stack([c[k].squeeze() for c in candidates])
+        for k in candidates[0].keys()
     }
     return histories, candidates, torch.stack(y)
 
