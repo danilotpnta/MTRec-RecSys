@@ -51,7 +51,7 @@ def main():
         embeddings=args.embeddings_type,
         num_workers=args.num_workers,
         max_length=args.max_length,
-        padding_value=None
+        padding_value=0
     )
     
     lr_monitor = LearningRateMonitor(logging_interval='step')

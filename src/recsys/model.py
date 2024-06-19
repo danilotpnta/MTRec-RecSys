@@ -433,6 +433,10 @@ class BERTMultitaskRecommender(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         history, candidates, labels = batch
+        
+        category = history.pop("category")
+        _ = candidates.pop("category")
+
         scores = self(history, candidates)
 
         loss = self.criterion(scores, labels)
