@@ -1,17 +1,19 @@
 import argparse
 
 from pytorch_lightning import Trainer, seed_everything
-from lightning.pytorch.callbacks import LearningRateMonitor
-from lightning.pytorch.loggers import TensorBoardLogger
+from pytorch_lightning.callbacks import LearningRateMonitor
+from pytorch_lightning.loggers import TensorBoardLogger
 from recsys.dataset import NewsDataModule
 from recsys.model import BERTMultitaskRecommender
+
+from src.recsys.model import MultitaskRecommender
 
 
 def arg_list():
     parser = argparse.ArgumentParser(description="Training arguments")
     parser.add_argument("--hidden_dim", type=int, default=768)
-    parser.add_argument("--bs", "--batch_size", type=int, default=512)
-    parser.add_argument("--lr", "--learning_rate", type=float, default=1e-1)
+    parser.add_argument("--bs", "--batch_size", type=int, default=16)
+    parser.add_argument("--lr", "--learning_rate", type=float, default=3e-4)
     parser.add_argument("--wd", "--weight_decay", type=float, default=0)
     parser.add_argument("--epochs", type=int, default=80)
     parser.add_argument(
@@ -31,6 +33,7 @@ def arg_list():
     parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--use_gradient_surgery", action="store_true")
+    parser.add_argument("--max_length", type=int, default=64)
     return parser.parse_args()
 
 
@@ -47,6 +50,7 @@ def main():
         dataset=args.dataset,
         embeddings=args.embeddings_type,
         num_workers=args.num_workers,
+        max_length=args.max_length,
         padding_value=None
     )
     

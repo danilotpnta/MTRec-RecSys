@@ -84,55 +84,6 @@ class UserEncoder(nn.Module):
         user_embedding = torch.sum(history * att_weight, dim=1)
         return user_embedding
 
-
-class MTRec(nn.Module):
-    """The main prediction model for the multi-task recommendation system, as described in the paper by ..."""
-
-    def __init__(self, hidden_dim):
-        super(MTRec, self).__init__()
-
-        self.W = nn.Linear(hidden_dim, hidden_dim)
-        self.q = nn.Parameter(torch.randn(hidden_dim))
-        # self.transformer_hist_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8)
-        # self.transformer_hist = nn.TransformerEncoder(self.transformer_hist_layer, num_layers=2)
-        # self.W_cand = nn.Linear(hidden_dim, hidden_dim)
-        # self.W_cand2 = nn.Linear(hidden_dim, hidden_dim)
-        # self.dropout = nn.Dropout(0.1)
-        # self.layer_norm = nn.LayerNorm(hidden_dim)
-        # self.norm2 = nn.LayerNorm(hidden_dim)
-
-    def forward(self, history, candidates):
-        """
-        B - batch size (keep in mind we use an unusual mini-batch approach)
-        H - history size (number of articles in the history, usually 30)
-        D - hidden size (768)
-        history:    B x H x D
-        candidates: B x 1 x D
-        """
-
-        # print(f"{candidates.shape=}")
-        # history = self.transformer_hist(history)
-        att = self.q * F.tanh(self.W(history))
-        att_weight = F.softmax(att, dim=1)
-        # print(f"{att_weight.shape=}")
-
-        user_embedding = torch.sum(history * att_weight, dim=1)
-        # print(f"{user_embedding.shape=}")
-        # print(f"{user_embedding.unsqueeze(-1).shape=}")
-        # candidates = self.norm2(candidates + self.W_cand2(self.layer_norm(self.dropout(F.relu(self.W_cand(candidates))))))
-
-        score = torch.bmm(candidates, user_embedding.unsqueeze(-1)) / torch.sqrt(
-            candidates.size(-1)
-        )  # B x M x 1
-        # print(score.shape)
-        return score.squeeze(-1)
-
-    def reshape(self, batch_news, bz):
-        n_news = len(batch_news) // bz
-        reshaped_batch = batch_news.reshape(bz, n_news, -1)
-        return reshaped_batch
-
-
 class NLLLoss(nn.Module):
     def forward(self, preds, target):
         # preds = preds.sigmoid()
@@ -331,7 +282,7 @@ class MultitaskRecommender(LightningModule):
         self.labels.clear()
 
     def validation_step(self, batch, batch_idx):
-        history, candidates, category, labels = batch
+        history, candidates, labels = batch
         scores = self(history, candidates)
 
         loss = self.criterion(scores, labels)
@@ -382,8 +333,12 @@ class BERTMultitaskRecommender(LightningModule):
             ],
         )
         
+        # from peft import get_peft_model, LoraConfig
+        
+        # self.bert = get_peft_model(self.bert, LoraConfig(r=16, lora_alpha=16))
+        
         from torchmetrics import Accuracy
-        self.accuracy = Accuracy(task="multiclass", num_classes=5)
+        self.accuracy = Accuracy(task="multilabel", num_labels=5)
         
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
@@ -406,13 +361,14 @@ class BERTMultitaskRecommender(LightningModule):
 
         # # Question: Is pos weight correct? TODO: Experiment with both. 
         self.criterion = nn.CrossEntropyLoss()
+        # self.criterion = NLLLoss()
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
             self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
         )
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer, max_lr=self.lr, pct_start=0.01, steps_per_epoch=6181*4//self.hparams.batch_size, epochs=self.hparams.epochs, anneal_strategy='linear'
+            optimizer, max_lr=self.hparams.lr, pct_start=0.1, steps_per_epoch=6181*4//self.hparams.batch_size, epochs=self.hparams.epochs, anneal_strategy='linear'
         )
         
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
