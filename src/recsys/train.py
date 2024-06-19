@@ -15,7 +15,7 @@ def arg_list():
     parser.add_argument("--bs", "--batch_size", type=int, default=16)
     parser.add_argument("--lr", "--learning_rate", type=float, default=3e-4)
     parser.add_argument("--wd", "--weight_decay", type=float, default=0)
-    parser.add_argument("--epochs", type=int, default=80)
+    parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument(
         "--data_path",
         "--data",
@@ -70,9 +70,9 @@ def main():
     if args.load_from_checkpoint:
         model = BERTMultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
     else:
-        model = BERTMultitaskRecommender(epochs=args.epochs, lr=args.lr, wd=args.wd, batch_size=args.bs)
         datamodule.prepare_data()
         datamodule.setup()
+        model = BERTMultitaskRecommender(epochs=args.epochs, lr=args.lr, wd=args.wd, batch_size=args.bs, steps_per_epoch=datamodule.train_dataset.__len__() // args.bs)
 
         # model = MultitaskRecommender(
         #     args.hidden_dim,

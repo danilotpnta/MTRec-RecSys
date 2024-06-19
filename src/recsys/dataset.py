@@ -390,6 +390,7 @@ class NewsDatasetV2(TorchDataset):
         history_size: int = 30,
         max_labels: int = 5,
         padding_value: int = 0,
+        embeddings_path: str = None,
         max_length=128,
         test_mode=False,
     ):
@@ -647,6 +648,9 @@ class NewsDataModule(LightningDataModule):
         self.max_length = max_length
         self.num_workers = num_workers
 
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            "google-bert/bert-base-multilingual-cased"
+        )
         self.dataset = dataset
         self.embeddings = embeddings
 
@@ -786,6 +790,7 @@ class NewsDataModule(LightningDataModule):
             shuffle=True,
             num_workers=self.num_workers,
             pin_memory=bool(self.num_workers),
+            collate_fn=collate_fn,
         )
 
     def val_dataloader(self):
@@ -795,6 +800,7 @@ class NewsDataModule(LightningDataModule):
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=bool(self.num_workers),
+            collate_fn=collate_fn,
         )
 
     def test_dataloader(self):
@@ -804,6 +810,7 @@ class NewsDataModule(LightningDataModule):
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=bool(self.num_workers),
+            collate_fn=collate_fn,
         )
 
 
@@ -833,6 +840,16 @@ def load_data(
     df_articles = pl.scan_parquet(data_path + "/articles.parquet")
 
     return df_behaviors, df_history, df_articles
+
+
+
+def collate_fn(batch):
+    histories, candidates, y = zip(*batch)
+    histories = {k: torch.stack([h[k].squeeze() for h in histories]) for k in histories[0].keys()}
+    candidates = {
+        k: torch.stack([c[k].squeeze() for c in candidates]) for k in candidates[0].keys()
+    }
+    return histories, candidates, torch.stack(y)
 
 
 def batch_random_choice_with_reset(population, num_choices):

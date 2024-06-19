@@ -333,9 +333,9 @@ class BERTMultitaskRecommender(LightningModule):
             ],
         )
         
-        # from peft import get_peft_model, LoraConfig
+        from peft import get_peft_model, LoraConfig
         
-        # self.bert = get_peft_model(self.bert, LoraConfig(r=16, lora_alpha=16))
+        self.bert = get_peft_model(self.bert, LoraConfig(r=16, lora_alpha=16))
         
         from torchmetrics import Accuracy
         self.accuracy = Accuracy(task="multilabel", num_labels=5)
@@ -368,7 +368,7 @@ class BERTMultitaskRecommender(LightningModule):
             self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
         )
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer, max_lr=self.hparams.lr, pct_start=0.1, epochs=self.hparams.epochs, anneal_strategy='linear'
+            optimizer, max_lr=self.hparams.lr, pct_start=0.1, epochs=self.hparams.epochs, anneal_strategy='linear', steps_per_epoch=self.hparams.steps_per_epoch
         )
         
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
