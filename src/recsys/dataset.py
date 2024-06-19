@@ -29,7 +29,8 @@ from ebrec.utils._python import (
     create_lookup_objects,
     generate_unique_name,
 )
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset as TorchDataset
+from datasets import Dataset
 from pytorch_lightning import LightningDataModule
 import json
 
@@ -48,7 +49,7 @@ HISTORY_TITLES_COL = "history_titles"
 INVIEW_TITLES_COL = "inview_titles"
 
 
-class NewsDatasetOG(Dataset):
+class NewsDatasetOG(TorchDataset):
     behaviors: pl.DataFrame
     history: pl.DataFrame
     articles: pl.DataFrame
@@ -126,7 +127,7 @@ class NewsDatasetOG(Dataset):
     @staticmethod
     def from_preprocessed(path: str):
         """Load the preprocessed data from the given path directory."""
-        dataset = NewsDataset.__new__(NewsDataset)
+        dataset = NewsDatasetOG.__new__(NewsDatasetOG)
         with open(path + "/parameters.json", "r") as f:
             data = json.load(f)
             dataset.history_size = data["history_size"]
@@ -288,7 +289,7 @@ class NewsDatasetOG(Dataset):
             )
             .select(COLUMNS)
             .pipe(create_binary_labels_column, seed=42, label_col=DEFAULT_LABELS_COL)
-            # .pipe(sort_and_select, n=self.max_labels)
+            .pipe(sort_and_select, n=self.max_labels)
             .with_columns(pl.col(DEFAULT_LABELS_COL).list.len().alias(N_SAMPLES_COL))
         )
 
@@ -375,8 +376,172 @@ class NewsDatasetOG(Dataset):
         return history_input, candidate_input, category, y
 
 
-class NewsDataset(NewsDatasetOG):
-    def _prepare_data_transform(self, article_id_to_title):
+class NewsDatasetV2(TorchDataset):
+    behaviors: pl.DataFrame
+    history: pl.DataFrame
+    articles: pl.DataFrame
+
+    def __init__(
+        self,
+        tokenizer,
+        behaviors: pl.DataFrame,
+        history: pl.DataFrame,
+        articles: pl.DataFrame,
+        history_size: int = 30,
+        max_labels: int = 5,
+        padding_value: int = 0,
+        max_length=128,
+        test_mode=False,
+    ):
+        self.behaviors = behaviors
+        self.history = history
+        self.articles = articles
+        self.history_size = history_size
+        self.padding_value = padding_value
+
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.max_labels = max_labels
+        self.test_mode = test_mode
+
+        # NOTE: Keep an eye on this if memory issues arise
+        self.articles = self.articles.select(
+            [
+                DEFAULT_ARTICLE_ID_COL,  # article_id
+                DEFAULT_TITLE_COL,  # title
+                DEFAULT_BODY_COL,  # body
+                DEFAULT_SUBTITLE_COL,  # subtitle
+                DEFAULT_TOPICS_COL,  # topics
+                DEFAULT_CATEGORY_STR_COL,  # category_str
+            ]
+        ).collect()
+
+        self.history = self._process_history(self.history, history_size, padding_value)
+        # Prepare the actual training data
+        self.behaviors = self.behaviors.collect()
+        self._prepare_articles()
+
+        if test_mode:
+            self._prepare_test_data()
+        else:
+            self._prepare_training_data()
+
+    def save_preprocessed(self, path: str):
+        """Save the preprocessed data to the given path directory."""
+        data = {
+            "history_size": self.history_size,
+            "padding_value": self.padding_value,
+            "max_labels": self.max_labels,
+            "max_categories": self.max_categories,
+            "test_mode": self.test_mode,
+        }
+
+        with open(path + "/parameters.json", "w") as f:
+            json.dump(data, f)
+        self.lookup_matrix.save_to_disk(path + "/lookup_matrix")
+        self.behaviors.write_parquet(path + "/behaviors.parquet")
+        self.history.write_parquet(path + "/history.parquet")
+        self.articles.write_parquet(path + "/articles.parquet")
+        self.data.dataframe.write_parquet(path + "/data.parquet")
+
+    @staticmethod
+    def from_preprocessed(path: str):
+        """Load the preprocessed data from the given path directory."""
+        dataset = NewsDatasetV2.__new__(NewsDatasetV2)
+        with open(path + "/parameters.json", "r") as f:
+            data = json.load(f)
+            dataset.history_size = data["history_size"]
+            dataset.padding_value = data["padding_value"]
+            dataset.max_labels = data["max_labels"]
+            dataset.max_categories = data["max_categories"]
+            dataset.test_mode = data["test_mode"]
+
+        dataset.lookup_matrix = Dataset.load_from_disk(path + "/lookup_matrix")
+        dataset.behaviors = pl.read_parquet(path + "/behaviors.parquet")
+        dataset.history = pl.read_parquet(path + "/history.parquet")
+        dataset.articles = pl.read_parquet(path + "/articles.parquet")
+        dataset.data = PolarsDataFrameWrapper(pl.read_parquet(path + "/data.parquet"))
+
+        return dataset
+
+    @classmethod
+    def _process_history(
+        cls, history: pl.LazyFrame, history_size: int = 30, padding_value: int = 0
+    ) -> pl.DataFrame:
+        return (
+            history.select(
+                [
+                    DEFAULT_USER_COL,  # user_id
+                    DEFAULT_HISTORY_ARTICLE_ID_COL,  # article_id_fixed
+                ]
+            )
+            .pipe(
+                truncate_history,
+                column=DEFAULT_HISTORY_ARTICLE_ID_COL,
+                history_size=history_size,
+                padding_value=padding_value,
+                enable_warning=False,
+            )
+            .collect()
+        )
+
+    def _prepare_articles(self):
+        self.articles = (
+            self.articles.lazy()
+            .with_columns(
+                pl.col(DEFAULT_CATEGORY_STR_COL)
+                .cast(pl.Categorical)
+                .to_physical()
+                .alias(DEFAULT_CATEGORY_COL)
+            )
+            .collect()
+        )
+
+        # Tokenize
+        tokens = self.tokenizer(
+            [""] + self.articles[DEFAULT_TITLE_COL].to_list(),
+            truncation=True,
+            padding=True,
+        )
+
+        # Create the lookup matrix
+        self.lookup_matrix = Dataset.from_dict(tokens).add_column(
+            DEFAULT_CATEGORY_COL,
+            [0] + self.articles[DEFAULT_CATEGORY_COL].cast(pl.UInt8).to_list(),
+        )
+
+        self.max_categories = max(self.lookup_matrix[DEFAULT_CATEGORY_COL]) + 1
+        self.article_id_to_idx = {
+            k: i
+            for i, k in enumerate([0] + self.articles[DEFAULT_ARTICLE_ID_COL].to_list())
+        }
+
+    def _prepare_test_data(self):
+        self.data = (
+            slice_join_dataframes(
+                df1=self.behaviors,
+                df2=self.history,
+                on=DEFAULT_USER_COL,
+                how="left",
+            ).select(
+                COLUMNS[:-1]
+            )  # do not count clicked articles as these do not exist in test
+        )
+
+        self.data = self.data.with_columns(
+            pl.col(DEFAULT_HISTORY_ARTICLE_ID_COL).list.eval(
+                pl.element().replace(self.article_id_to_idx, default=0)
+            ),
+            pl.col(DEFAULT_INVIEW_ARTICLES_COL).list.eval(
+                pl.element().replace(self.article_id_to_idx, default=0)
+            ),
+        )
+
+        self.data = PolarsDataFrameWrapper(self.data)
+
+    def _prepare_training_data(self):
+        # Map article_id to index
+
         self.data = (
             slice_join_dataframes(
                 df1=self.behaviors,
@@ -385,40 +550,26 @@ class NewsDataset(NewsDatasetOG):
                 how="left",
             )
             .select(COLUMNS)
-            .pipe(create_binary_labels_column, seed=42, label_col=DEFAULT_LABELS_COL)
-            # .pipe(sort_and_select, n=self.max_labels)
+            .pipe(
+                create_binary_labels_column, label_col=DEFAULT_LABELS_COL, shuffle=False
+            )
+            .pipe(sort_and_select, n=self.max_labels)
             .with_columns(pl.col(DEFAULT_LABELS_COL).list.len().alias(N_SAMPLES_COL))
         )
 
-        # Apply the function to create a new column with titles
-        self.data = self.data.lazy().with_columns(
-            pl.col(DEFAULT_HISTORY_ARTICLE_ID_COL)
-            .map_elements(map_article_ids_to_titles_wrapper(article_id_to_title))
-            .alias(HISTORY_TITLES_COL),
-            pl.col(DEFAULT_INVIEW_ARTICLES_COL)
-            .map_elements(map_article_ids_to_titles_wrapper(article_id_to_title))
-            .alias(INVIEW_TITLES_COL),
-        ).collect()
+        self.data = self.data.with_columns(
+            pl.col(DEFAULT_HISTORY_ARTICLE_ID_COL).list.eval(
+                pl.element().replace(self.article_id_to_idx, default=0)
+            ),
+            pl.col(DEFAULT_INVIEW_ARTICLES_COL).list.eval(
+                pl.element().replace(self.article_id_to_idx, default=0)
+            ),
+        )
 
-        # # self.lookup_indexes = {i: val.item() for i, val in self.lookup_indexes.items()}
-        # self.data = (
-        #     self.data.lazy()
-        #     .pipe(
-        #         map_list_article_id_to_value,
-        #         behaviors_column=DEFAULT_HISTORY_ARTICLE_ID_COL,
-        #         mapping=self.lookup_indexes,
-        #         fill_nulls=[0],
-        #     )
-        #     .pipe(
-        #         map_list_article_id_to_value,
-        #         behaviors_column=DEFAULT_INVIEW_ARTICLES_COL,
-        #         mapping=self.lookup_indexes,
-        #         fill_nulls=[0],
-        #     )
-        #     .collect(streaming=True)
-        # )
+        self.data = PolarsDataFrameWrapper(self.data)
 
-        return self.data
+    def __len__(self):
+        return len(self.data.dataframe)
 
     def __getitem__(self, index):
         """
@@ -434,35 +585,40 @@ class NewsDataset(NewsDatasetOG):
         """
 
         batch = self.data[index]
-        history_input = batch[HISTORY_TITLES_COL][0].to_list()
-        candidate_input = batch[INVIEW_TITLES_COL][0]
-        # =>
-        # history_input = torch.tensor(history_input).squeeze()
-        # category = torch.from_numpy(self.aux_cat_lookup_matrix[_hist]).long().squeeze()
+
+        # Construct the history vectors
+        _hist = list(
+            self.lookup_matrix[_]
+            for _ in batch[DEFAULT_HISTORY_ARTICLE_ID_COL].to_list()
+        )
+        histories = {
+            key: torch.tensor([val[key] for val in _hist])
+            for key in self.lookup_matrix.features.keys()
+        }
 
         # Early return for test mode
         # ========================
+        # Construct the candidate vectors
+        _cand = list(
+            self.lookup_matrix[_] for _ in batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()
+        )
         if self.test_mode:
-            # candidates = torch.tensor(candidate_input).squeeze()
-            return history_input, candidate_input
+            # Special treatment, as they are not guaranteed to be of the same length
+            candidates = {
+                key: [torch.tensor(val[key]) for val in _cand]
+                for key in self.lookup_matrix.features.keys()
+            }
+            return histories, candidates
         # ========================
 
-        # Otherwise, prepare the labels
-        labels_item = np.array(batch[DEFAULT_LABELS_COL][0])
-        idx = np.argsort(labels_item)
-        pos_idx_start = labels_item[idx].argmax()
-        pos_idxs = batch_random_choice_with_reset(idx[pos_idx_start:], 1)
-        neg_idxs = batch_random_choice_with_reset(
-            idx[:pos_idx_start], self.max_labels - 1
-        )
-        # pos_idxs = np.random.choice(idx[pos_idx_start:], size=(1,), replace=False)
-        # neg_idxs = np.random.choice(idx[:pos_idx_start], size=(self.max_labels-1,), replace=False)
-        idx = np.concatenate((neg_idxs, pos_idxs))
-        # shuffle(idx)
-        candidate_input = candidate_input[idx].to_list()
-        y = torch.tensor(labels_item[idx], dtype=torch.float).squeeze()
-        # ========================
-        return history_input, candidate_input, y
+        labels = batch[DEFAULT_LABELS_COL].to_list()
+        candidates = {
+            key: torch.tensor([val[key] for val in _cand])
+            for key in self.lookup_matrix.features.keys()
+        }
+        y = torch.tensor(labels).float().squeeze()
+        # # ========================
+        return histories, candidates, y
 
 
 class NewsDataModule(LightningDataModule):
@@ -493,8 +649,6 @@ class NewsDataModule(LightningDataModule):
 
         self.dataset = dataset
         self.embeddings = embeddings
-
-        self.tokenizer = AutoTokenizer.from_pretrained("bert-base-multilingual-uncased")
 
     def prepare_data(self):
         # Download the dataset
@@ -532,40 +686,6 @@ class NewsDataModule(LightningDataModule):
                     return
         raise FileNotFoundError("No parquet file found in the embeddings directory.")
 
-    def _collate_fn(self, batch):
-        histories, candidates, y = zip(*batch)
-        batch_size = len(histories)
-        histories = [
-            self.tokenizer(
-                history,
-                padding="max_length",
-                truncation=True,
-                max_length=self.max_length,
-                return_tensors="pt",
-            )
-            for history in histories
-        ]
-        histories = [
-            {k: torch.cat((torch.full((self.history_size - len(v), self.max_length), self.tokenizer.pad_token_id), v))
-                    for k, v in history.items()
-            }
-            for history in histories
-        ]
-        histories = {k: torch.stack([v[k] for v in histories]) for k in histories[0]}
-        candidates_flat = [item for sublist in candidates for item in sublist]
-        candidates = self.tokenizer(
-            candidates_flat,
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors="pt",
-        )
-        candidates = {
-            k: v.view(batch_size, self.max_labels, -1) for k, v in candidates.items()
-        }
-        y = torch.stack(y)
-        return histories, candidates, y
-
     def _download_test(self):
         # Download the dataset
         url = CHALLENGE_DATASET["test"]
@@ -587,13 +707,13 @@ class NewsDataModule(LightningDataModule):
                 if not hasattr(self, "train_dataset"):
                     save_dir = os.path.join(self.data_path, "train", "preprocessed")
                     if os.path.exists(save_dir):
-                        self.train_dataset = NewsDataset.from_preprocessed(save_dir)
+                        self.train_dataset = NewsDatasetV2.from_preprocessed(save_dir)
 
                     else:
                         df_behaviors, df_history, df_articles = load_data(
                             self.data_path, split="train"
                         )
-                        self.train_dataset = NewsDataset(
+                        self.train_dataset = NewsDatasetV2(
                             tokenizer=self.tokenizer,
                             behaviors=df_behaviors,
                             history=df_history,
@@ -613,12 +733,12 @@ class NewsDataModule(LightningDataModule):
                         self.data_path, "validation", "preprocessed"
                     )
                     if os.path.exists(save_dir):
-                        self.val_dataset = NewsDataset.from_preprocessed(save_dir)
+                        self.val_dataset = NewsDatasetV2.from_preprocessed(save_dir)
                     else:
                         df_behaviors, df_history, df_articles = load_data(
                             self.data_path, split="validation"
                         )
-                        self.val_dataset = NewsDataset(
+                        self.val_dataset = NewsDatasetV2(
                             tokenizer=self.tokenizer,
                             behaviors=df_behaviors,
                             history=df_history,
@@ -639,12 +759,12 @@ class NewsDataModule(LightningDataModule):
                     save_dir = os.path.join(self.data_path, "preprocessed")
 
                     if os.path.exists(save_dir):
-                        self.test_dataset = NewsDataset.from_preprocessed(save_dir)
+                        self.test_dataset = NewsDatasetV2.from_preprocessed(save_dir)
                         return
                     df_behaviors, df_history, df_articles = load_data(
                         self.data_path, split="test"
                     )
-                    self.test_dataset = NewsDataset(
+                    self.test_dataset = NewsDatasetV2(
                         tokenizer=self.tokenizer,
                         behaviors=df_behaviors,
                         history=df_history,
@@ -666,7 +786,6 @@ class NewsDataModule(LightningDataModule):
             shuffle=True,
             num_workers=self.num_workers,
             pin_memory=bool(self.num_workers),
-            collate_fn=self._collate_fn,
         )
 
     def val_dataloader(self):
@@ -676,7 +795,6 @@ class NewsDataModule(LightningDataModule):
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=bool(self.num_workers),
-            collate_fn=self._collate_fn,
         )
 
     def test_dataloader(self):
@@ -686,7 +804,6 @@ class NewsDataModule(LightningDataModule):
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=bool(self.num_workers),
-            collate_fn=self._collate_fn,
         )
 
 

@@ -368,7 +368,7 @@ class BERTMultitaskRecommender(LightningModule):
             self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
         )
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer, max_lr=self.hparams.lr, pct_start=0.1, steps_per_epoch=6181*4//self.hparams.batch_size, epochs=self.hparams.epochs, anneal_strategy='linear'
+            optimizer, max_lr=self.hparams.lr, pct_start=0.1, epochs=self.hparams.epochs, anneal_strategy='linear'
         )
         
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
@@ -388,7 +388,6 @@ class BERTMultitaskRecommender(LightningModule):
         """
         # Implement a baseline: LinearRegression, SVM?
         # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
-        # Maybe integrate our own BERT and finetune it? 
         # history = self.transformer(history)
         # user_embedding = self.transformer(history).mean(dim=1)
         batch_size, hist_size, seq_len = history["input_ids"].size()
@@ -415,6 +414,10 @@ class BERTMultitaskRecommender(LightningModule):
 
     def training_step(self, batch, batch_idx):
         history, candidates, labels = batch
+        
+        category = history.pop("category")
+        _ = candidates.pop("category")
+        
         scores = self(history, candidates)
 
         loss = self.criterion(scores, labels)
