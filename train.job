@@ -31,4 +31,4 @@ export HF_DATASETS_IN_MEMORY_MAX_SIZE=118719476736 # 120GB
 rm -rf $HF_DATASETS_CACHE/large
 python -m src.recsys.train \
     --data $HF_DATASETS_CACHE \
-    --dataset demo --epochs 10 --bs 16 --lr 1e-5
+    --dataset demo --epochs 10 --bs 16 --lr 2e-5

@@ -72,11 +72,7 @@ def main():
     else:
         datamodule.prepare_data()
         datamodule.setup()
-<<<<<<< HEAD
-        model = BERTMultitaskRecommender(epochs=args.epochs, lr=args.lr, wd=args.wd, batch_size=args.bs, train_ds_size=len(datamodule.train_dataset))
-=======
         model = BERTMultitaskRecommender(epochs=args.epochs, lr=args.lr, wd=args.wd, batch_size=args.bs, steps_per_epoch=datamodule.train_dataset.__len__() // args.bs)
->>>>>>> cd83468d819db07f0dd657b01cd7bfa23f5a1450
 
         # model = MultitaskRecommender(
         #     args.hidden_dim,
