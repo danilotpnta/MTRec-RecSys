@@ -1,8 +1,8 @@
 import argparse
 
 from pytorch_lightning import Trainer, seed_everything
-from lightning.pytorch.callbacks import LearningRateMonitor
-from lightning.pytorch.loggers import TensorBoardLogger
+from pytorch_lightning.callbacks import LearningRateMonitor
+from pytorch_lightning.loggers import TensorBoardLogger
 from recsys.dataset import NewsDataModule
 from recsys.model import BERTMultitaskRecommender
 
@@ -12,8 +12,8 @@ def arg_list():
     parser.add_argument("--hidden_dim", type=int, default=768)
     parser.add_argument("--bs", "--batch_size", type=int, default=512)
     parser.add_argument("--lr", "--learning_rate", type=float, default=1e-1)
-    parser.add_argument("--wd", "--weight_decay", type=float, default=0)
-    parser.add_argument("--epochs", type=int, default=80)
+    parser.add_argument("--wd", "--weight_decay", type=float, default=1e-6)
+    parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument(
         "--data_path",
         "--data",
@@ -66,9 +66,9 @@ def main():
     if args.load_from_checkpoint:
         model = BERTMultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
     else:
-        model = BERTMultitaskRecommender(epochs=args.epochs, lr=args.lr, wd=args.wd, batch_size=args.bs)
         datamodule.prepare_data()
         datamodule.setup()
+        model = BERTMultitaskRecommender(epochs=args.epochs, lr=args.lr, wd=args.wd, batch_size=args.bs, train_ds_size=len(datamodule.train_dataset))
 
         # model = MultitaskRecommender(
         #     args.hidden_dim,

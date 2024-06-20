@@ -1,0 +1,17 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu
+# Apparently we are now charged for 2 GPUs automatically, so might as well. Change this to 1 if model training errors arise.
+#SBATCH --gpus=1
+#SBATCH --gpus-per-node=1
+#SBATCH --job-name=RECSYS
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=12
+#SBATCH --time=00:30:00
+#SBATCH --mem=64GB
+#SBATCH --output=/home/scur0998/MTRec-RecSys/%A.out
+
+WORK_DIR=$HOME/MTRec-RecSys
+cd $WORK_DIR
+
+python -m venv .
