@@ -84,58 +84,12 @@ class UserEncoder(nn.Module):
         user_embedding = torch.sum(history * att_weight, dim=1)
         return user_embedding
 
-
-class MTRec(nn.Module):
-    """The main prediction model for the multi-task recommendation system, as described in the paper by ..."""
-
-    def __init__(self, hidden_dim):
-        super(MTRec, self).__init__()
-
-        self.W = nn.Linear(hidden_dim, hidden_dim)
-        self.q = nn.Parameter(torch.randn(hidden_dim))
-        # self.transformer_hist_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=8)
-        # self.transformer_hist = nn.TransformerEncoder(self.transformer_hist_layer, num_layers=2)
-        # self.W_cand = nn.Linear(hidden_dim, hidden_dim)
-        # self.W_cand2 = nn.Linear(hidden_dim, hidden_dim)
-        # self.dropout = nn.Dropout(0.1)
-        # self.layer_norm = nn.LayerNorm(hidden_dim)
-        # self.norm2 = nn.LayerNorm(hidden_dim)
-
-    def forward(self, history, candidates):
-        """
-        B - batch size (keep in mind we use an unusual mini-batch approach)
-        H - history size (number of articles in the history, usually 30)
-        D - hidden size (768)
-        history:    B x H x D
-        candidates: B x 1 x D
-        """
-
-        # print(f"{candidates.shape=}")
-        # history = self.transformer_hist(history)
-        att = self.q * F.tanh(self.W(history))
-        att_weight = F.softmax(att, dim=1)
-        # print(f"{att_weight.shape=}")
-
-        user_embedding = torch.sum(history * att_weight, dim=1)
-        # print(f"{user_embedding.shape=}")
-        # print(f"{user_embedding.unsqueeze(-1).shape=}")
-        # candidates = self.norm2(candidates + self.W_cand2(self.layer_norm(self.dropout(F.relu(self.W_cand(candidates))))))
-
-        score = torch.bmm(candidates, user_embedding.unsqueeze(-1)) / torch.sqrt(
-            candidates.size(-1)
-        )  # B x M x 1
-        # print(score.shape)
-        return score.squeeze(-1)
-
-    def reshape(self, batch_news, bz):
-        n_news = len(batch_news) // bz
-        reshaped_batch = batch_news.reshape(bz, n_news, -1)
-        return reshaped_batch
-
-
 class NLLLoss(nn.Module):
     def forward(self, preds, target):
-        preds = preds.sigmoid()
+        # preds = preds.sigmoid()
+        # print(target)
+        # print(preds.where(target == 1, -torch.inf))
+        # exit()
         return -torch.log(
             preds.where(target == 1, -torch.inf).exp().sum(dim=-1, keepdims=True)
             / (preds.exp().sum(dim=-1, keepdims=True))
@@ -166,7 +120,7 @@ class MultitaskRecommender(LightningModule):
         self,
         hidden_dim,
         nhead=8,
-        num_layers=4,
+        num_layers=2,
         n_categories=5,
         lr=1e-2,
         wd=0.0,
@@ -174,7 +128,7 @@ class MultitaskRecommender(LightningModule):
         **kwargs,
     ):
         super().__init__()
-        self.automatic_optimization = False
+        self.automatic_optimization = use_gradient_surgery
 
         self.save_hyperparameters()
 
@@ -228,7 +182,8 @@ class MultitaskRecommender(LightningModule):
         # [0.1, 0.2, 0.3, 0.4, 0.5]
 
         # self.criterion = NLLLoss()
-        self.criterion = nn.CrossEntropyLoss()
+        self.linear = nn.Linear(768*2, 1)
+        self.criterion = NLLLoss()
         self.category_loss = nn.CrossEntropyLoss()
 
     def configure_optimizers(self):
@@ -261,10 +216,29 @@ class MultitaskRecommender(LightningModule):
         # user_embedding = (user_embedding.softmax(dim=1) * user_embedding).sum(dim=1)
         user_embedding = self.user_encoder(history)
         # Normalization in order to reduce the variance of the dot product
+        
+        
+        b, c, d = candidates.size()
+        # noise = torch.randn((b,c,d), device=self.device)
+        # candidates = candidates + noise
+
+        candidates = self.transformer(candidates)
         scores = torch.bmm(
-            F.normalize(candidates), F.normalize(user_embedding.unsqueeze(-1))
+            F.normalize(candidates, dim=-1), F.normalize(user_embedding.unsqueeze(-1), dim=1)
+            # candidates, user_embedding.unsqueeze(-1)
         )
-        return scores.squeeze(-1)
+        print(scores)
+        print(candidates)
+        exit()
+        scores = scores.squeeze(-1).softmax(-1)
+        # print(candidates, candidates.mean(-1), candidates.std(-1))
+        # exit()
+        
+        # print(user_embedding.unsqueeze(1).repeat(1,c,1).shape)
+        
+        # cat = torch.cat([candidates, user_embedding.unsqueeze(1).repeat(1, c, 1)], dim=-1) # B x C x 2D
+        # scores = self.linear(cat) # ??? 
+        return scores
 
     def training_step(self, batch, batch_idx):
         history, candidates, category, labels = batch
@@ -272,6 +246,11 @@ class MultitaskRecommender(LightningModule):
 
         # News Ranking Loss
         news_ranking_loss = self.criterion(scores, labels)
+        # print(f"{news_ranking_loss=}")
+        # print(candidates)
+        # print(labels)
+        # print(scores)
+        # exit()
         category_scores = self.category_encoder(history)
 
         category = torch.nn.functional.one_hot(
@@ -279,19 +258,16 @@ class MultitaskRecommender(LightningModule):
         ).float()
         category_loss = self.category_loss(category_scores, category)
 
+        aux_loss = 0.3 * category_loss
+        loss = news_ranking_loss
         # Gradient Surgery
         # ================
-        optimizer = self.optimizers()
-        optimizer.zero_grad()
-
-        aux_loss = 0.3 * category_loss
-        loss = news_ranking_loss + aux_loss
-        
         if self.hparams.use_gradient_surgery:
+            optimizer = self.optimizers()
+            optimizer.zero_grad()
+
             optimizer.optimizer.pc_backward([news_ranking_loss, aux_loss])
-        else:
-            loss.backward()
-        optimizer.step()
+            optimizer.step()
         # ================
 
         self.log("train/loss", loss, prog_bar=True)
@@ -306,7 +282,7 @@ class MultitaskRecommender(LightningModule):
         self.labels.clear()
 
     def validation_step(self, batch, batch_idx):
-        history, candidates, category, labels = batch
+        history, candidates, labels = batch
         scores = self(history, candidates)
 
         loss = self.criterion(scores, labels)
@@ -358,7 +334,7 @@ class BERTMultitaskRecommender(LightningModule):
         )
         self.indx = 0
         from torchmetrics import Accuracy
-        self.accuracy = Accuracy(task="multiclass", num_classes=5)
+        self.accuracy = Accuracy(task="multilabel", num_labels=5)
         
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
@@ -381,6 +357,7 @@ class BERTMultitaskRecommender(LightningModule):
 
         # # Question: Is pos weight correct? TODO: Experiment with both. 
         self.criterion = nn.CrossEntropyLoss()
+        # self.criterion = NLLLoss()
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
@@ -414,7 +391,6 @@ class BERTMultitaskRecommender(LightningModule):
         """
         # Implement a baseline: LinearRegression, SVM?
         # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
-        # Maybe integrate our own BERT and finetune it? 
         # history = self.transformer(history)
         # user_embedding = self.transformer(history).mean(dim=1)
         self.indx += 1
@@ -443,11 +419,15 @@ class BERTMultitaskRecommender(LightningModule):
 
     def training_step(self, batch, batch_idx):
         history, candidates, labels = batch
+        
+        category = history.pop("category")
+        _ = candidates.pop("category")
+        
         scores = self(history, candidates)
 
         loss = self.criterion(scores, labels)
 
-        self.log("train_loss", loss, prog_bar=True)
+        self.log("train/loss", loss, prog_bar=True)
         return loss
 
     def on_validation_epoch_start(self) -> None:
@@ -458,20 +438,24 @@ class BERTMultitaskRecommender(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         history, candidates, labels = batch
+        
+        category = history.pop("category")
+        _ = candidates.pop("category")
+
         scores = self(history, candidates)
 
         loss = self.criterion(scores, labels)
         
         accuracy = self.accuracy(scores.float(), labels.float())
-        self.log("val_accuracy", accuracy, prog_bar=True) 
-        self.log("val_loss", loss.float().item(), prog_bar=True)
+        self.log("validation/accuracy", accuracy)
+        self.log("validation/loss", loss, prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())
 
     def on_validation_epoch_end(self) -> None:
         super().on_validation_epoch_end()
         metrics = self.metric_evaluator.evaluate()
-        self.log_dict(metrics.evaluations)
+        self.log_dict({f"validation/{k}": v for k, v in metrics.evaluations.items()})
 
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)

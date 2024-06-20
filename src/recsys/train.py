@@ -6,6 +6,8 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from recsys.dataset import NewsDataModule
 from recsys.model import BERTMultitaskRecommender
 
+from src.recsys.model import MultitaskRecommender
+
 
 def arg_list():
     parser = argparse.ArgumentParser(description="Training arguments")
@@ -31,6 +33,7 @@ def arg_list():
     parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--use_gradient_surgery", action="store_true")
+    parser.add_argument("--max_length", type=int, default=64)
     return parser.parse_args()
 
 
@@ -47,7 +50,8 @@ def main():
         dataset=args.dataset,
         embeddings=args.embeddings_type,
         num_workers=args.num_workers,
-        padding_value=None
+        max_length=args.max_length,
+        padding_value=0
     )
     
     lr_monitor = LearningRateMonitor(logging_interval='step')
@@ -68,7 +72,11 @@ def main():
     else:
         datamodule.prepare_data()
         datamodule.setup()
+<<<<<<< HEAD
         model = BERTMultitaskRecommender(epochs=args.epochs, lr=args.lr, wd=args.wd, batch_size=args.bs, train_ds_size=len(datamodule.train_dataset))
+=======
+        model = BERTMultitaskRecommender(epochs=args.epochs, lr=args.lr, wd=args.wd, batch_size=args.bs, steps_per_epoch=datamodule.train_dataset.__len__() // args.bs)
+>>>>>>> cd83468d819db07f0dd657b01cd7bfa23f5a1450
 
         # model = MultitaskRecommender(
         #     args.hidden_dim,
