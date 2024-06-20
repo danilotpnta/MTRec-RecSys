@@ -34,6 +34,7 @@ def arg_list():
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--use_gradient_surgery", action="store_true")
     parser.add_argument("--max_length", type=int, default=64)
+    parser.add_argument("--use_precomputed_embeddings", action="store_true")
     return parser.parse_args()
 
 
@@ -51,7 +52,8 @@ def main():
         embeddings=args.embeddings_type,
         num_workers=args.num_workers,
         max_length=args.max_length,
-        padding_value=0
+        padding_value=0,
+        dataset_type="v1" if args.use_precomputed_embeddings else "v2",     
     )
     
     lr_monitor = LearningRateMonitor(logging_interval='step')
