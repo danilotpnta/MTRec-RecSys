@@ -178,7 +178,9 @@ class BERTMultitaskRecommender(LightningModule):
         if self.indx % 100 == 0: 
             print(candidates)
         # Normalization in order to reduce the variance of the dot product
-        scores = torch.bmm(candidates, user_embedding.unsqueeze(-1))
+        scores = torch.bmm(
+            F.normalize(candidates, dim=-1), F.normalize(user_embedding.unsqueeze(-1), dim=1)
+        )
         return scores.squeeze(-1)
 
     def compute_loss(self, batch):
@@ -197,7 +199,7 @@ class BERTMultitaskRecommender(LightningModule):
         # category_loss = self.category_loss(category_scores, category)
 
         category_loss = torch.tensor(0.0, device=self.device)
-        return {"news_ranking_loss": news_ranking_loss, "category_loss": category_loss, scores: scores, labels: labels}
+        return {"news_ranking_loss": news_ranking_loss, "category_loss": category_loss, "scores": scores, "labels": labels}
 
     def training_step(self, batch, batch_idx):
         loss = self.compute_loss(batch)
@@ -236,10 +238,8 @@ class BERTMultitaskRecommender(LightningModule):
         labels = loss["labels"]
         
         accuracy = self.accuracy(scores, labels)
-        auroc = self.auroc(scores, labels.long())
         self.log("validation/accuracy", accuracy)
-        self.log("validation/auroc", auroc)
-        self.log("validation/loss", loss, prog_bar=True)
+        self.log("validation/loss", loss["news_ranking_loss"], prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())
 
@@ -282,21 +282,16 @@ class MultitaskRecommender(BERTMultitaskRecommender):
 
         self.save_hyperparameters()
 
-        transformer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim, nhead=nhead, batch_first=True
-        )
-        self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
+        # transformer = nn.TransformerEncoderLayer(
+        #     d_model=hidden_dim, nhead=nhead, batch_first=True
+        # )
+        # self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
 
         self.user_encoder = UserEncoder(hidden_dim)
         self.category_encoder = CategoryEncoder(hidden_dim, n_categories=n_categories)
+        
+        del self.bert
 
-
-    def configure_optimizers(self):
-        optim = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)
-        if self.hparams.use_gradient_surgery:
-            optim = PCGrad(optim)
-        print(f"Learning rate: {self.hparams.lr}")
-        return optim
     
     def forward(self, history, candidates):
         """
@@ -311,25 +306,17 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         Returns:
         B x C scores
         """
-        # Implement a baseline: LinearRegression, SVM?
-        # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
-        # Maybe integrate our own BERT and finetune it?
+
         # history = self.transformer(history)
         # user_embedding = self.transformer(history)
         # user_embedding = torch.sum(history * user_embedding.softmax(dim=1), dim=1)
         # user_embedding = (user_embedding.softmax(dim=1) * user_embedding).sum(dim=1)
         user_embedding = self.user_encoder(history)
-        # Normalization in order to reduce the variance of the dot product
-        
-        
-        b, c, d = candidates.size()
-        # noise = torch.randn((b,c,d), device=self.device)
-        # candidates = candidates + noise
 
-        candidates = self.transformer(candidates)
+
+        # Normalization in order to reduce the variance of the dot product
         scores = torch.bmm(
             F.normalize(candidates, dim=-1), F.normalize(user_embedding.unsqueeze(-1), dim=1)
-            # candidates, user_embedding.unsqueeze(-1)
         )
     
         scores = scores.squeeze(-1)
@@ -350,7 +337,7 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         # category_loss = self.category_loss(category_scores, category)
 
         category_loss = torch.tensor(0.0, device=self.device)
-        return {"news_ranking_loss": news_ranking_loss, "category_loss": category_loss, scores: scores, labels: labels}
+        return {"news_ranking_loss": news_ranking_loss, "category_loss": category_loss, "scores": scores, "labels": labels}
 
 
 
