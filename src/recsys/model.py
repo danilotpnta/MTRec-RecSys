@@ -309,7 +309,7 @@ class BERTMultitaskRecommender(LightningModule):
     The main prediction model for the multi-task recommendation system with BERT fine-tuning.
     """
 
-    def __init__(self, epochs=10, lr=1e-3, wd=0.0, **kwargs):
+    def __init__(self, epochs=10, lr=1e-3, wd=0.0, steps_per_epoch=None, **kwargs):
         super().__init__()
 
         self.save_hyperparameters()
@@ -332,11 +332,7 @@ class BERTMultitaskRecommender(LightningModule):
                 F1Score(),
             ],
         )
-        
-        from peft import get_peft_model, LoraConfig
-        
-        self.bert = get_peft_model(self.bert, LoraConfig(r=16, lora_alpha=16))
-        
+        self.indx = 0
         from torchmetrics import Accuracy
         self.accuracy = Accuracy(task="multilabel", num_labels=5)
         
@@ -368,10 +364,17 @@ class BERTMultitaskRecommender(LightningModule):
             self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
         )
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer, max_lr=self.hparams.lr, pct_start=0.1, epochs=self.hparams.epochs, anneal_strategy='linear', steps_per_epoch=self.hparams.steps_per_epoch
+            optimizer, max_lr=self.hparams.lr, pct_start=0.1, steps_per_epoch=self.hparams.steps_per_epoch, epochs=self.hparams.epochs, anneal_strategy='linear'
         )
         
-        return {"optimizer": optimizer, "lr_scheduler": scheduler}
+        return {
+            "optimizer": optimizer, 
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "frequency": "1",
+                "interval": "step",
+            },
+        }  
 
     def forward(self, history, candidates):
         """
@@ -390,6 +393,7 @@ class BERTMultitaskRecommender(LightningModule):
         # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
         # history = self.transformer(history)
         # user_embedding = self.transformer(history).mean(dim=1)
+        self.indx += 1
         batch_size, hist_size, seq_len = history["input_ids"].size()
         history["input_ids"] = history["input_ids"].view(batch_size*hist_size, seq_len)
         history["attention_mask"] = history["attention_mask"].view(batch_size*hist_size, seq_len)
@@ -407,7 +411,8 @@ class BERTMultitaskRecommender(LightningModule):
         # print(f"{att_weight.shape=}")
 
         user_embedding = torch.sum(history * att_weight, dim = 1)
-
+        if self.indx % 100 == 0: 
+            print(candidates)
         # Normalization in order to reduce the variance of the dot product
         scores = torch.bmm(candidates, user_embedding.unsqueeze(-1))
         return scores.squeeze(-1)
