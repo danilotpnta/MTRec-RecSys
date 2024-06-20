@@ -19,52 +19,9 @@ from torch.nn import functional as F
 # Setting to get more matmul performance on Tensor Core capable machines.
 torch.set_float32_matmul_precision("medium")
 
-
-def apply_softmax_crossentropy(logits, one_hot_targets, epsilon=1e-10):
-    """
-    Applies softmax and computes the cross-entropy loss for each segment of logits with one-hot encoded targets.
-
-    Args:
-        logits (torch.Tensor): Flattened array of logits.
-        repeats (torch.Tensor): Tensor indicating the number of logits in each segment.
-        one_hot_targets (torch.Tensor): Flattened one-hot encoded target labels.
-        epsilon (float): A small value to add to log inputs to avoid NaN.
-
-    Returns:
-        torch.Tensor: The cross-entropy loss for each segment.
-    """
-
-    # Split logits and one-hot targets according to repeats
-    # split_logits = torch.split(logits, repeats.tolist())
-    # split_targets = torch.split(one_hot_targets, repeats.tolist())
-
-    # Determine the maximum length for padding
-    # max_len = max(repeats)
-
-    # Pad logits and one-hot targets, then stack them
-    # padded_logits = torch.stack([F.pad(segment, (0, max_len - segment.size(0)), 'constant', float('-inf')) for segment in split_logits])
-    # padded_targets = torch.stack([F.pad(segment, (0, max_len - segment.size(0)), 'constant', 0) for segment in split_targets])
-
-    # Apply softmax to logits and add epsilon to avoid NaNs
-    softmaxed_logits = F.softmax(logits, dim=-1)
-    log_softmaxed_logits = torch.log(softmaxed_logits + epsilon)
-
-    # Calculate cross-entropy loss
-    losses = -torch.sum(one_hot_targets * log_softmaxed_logits, dim=-1)
-
-    # Mask out the padded positions
-    mask = (one_hot_targets.sum(dim=-1) > 0).float()
-    masked_losses = losses * mask
-
-    # Sum the losses for each segment and divide by the number of true (non-padded) entries
-    segment_losses = masked_losses.sum(dim=-1) / mask.sum(dim=-1)
-
-    return segment_losses
-
-
 class UserEncoder(nn.Module):
     """
-    A simple user encoder that averages the embeddings of the user's read articles.
+    A simple user encoder that averages the attention of the embeddings of the user's read articles.
     """
 
     def __init__(self, hidden_dim):
@@ -95,7 +52,6 @@ class NLLLoss(nn.Module):
             / (preds.exp().sum(dim=-1, keepdims=True))
         ).mean()
 
-
 class CategoryEncoder(nn.Module):
     def __init__(self, hidden_dim, n_categories=5):
         super(CategoryEncoder, self).__init__()
@@ -111,199 +67,6 @@ class CategoryEncoder(nn.Module):
         return self.linear(history)
 
 
-class MultitaskRecommender(LightningModule):
-    """
-    The main prediction model for the multi-task recommendation system we implement.
-    """
-
-    def __init__(
-        self,
-        hidden_dim,
-        nhead=8,
-        num_layers=2,
-        n_categories=5,
-        lr=1e-2,
-        wd=0.0,
-        use_gradient_surgery=False,
-        **kwargs,
-    ):
-        super().__init__()
-        self.automatic_optimization = use_gradient_surgery
-
-        self.save_hyperparameters()
-
-        transformer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim, nhead=nhead, batch_first=True
-        )
-
-        self.user_encoder = UserEncoder(hidden_dim)
-        self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
-        self.category_encoder = CategoryEncoder(hidden_dim, n_categories=n_categories)
-
-        self.predictions = []
-        self.labels = []
-        self.metric_evaluator = MetricEvaluator(
-            self.labels,
-            self.predictions,
-            metric_functions=[
-                AucScore(),
-                MrrScore(),
-                NdcgScore(k=10),
-                NdcgScore(k=5),
-                LogLossScore(),
-                RootMeanSquaredError(),
-                F1Score(),
-            ],
-        )
-
-        # from torchmetrics.retrieval import RetrievalAUROC
-        from torchmetrics.classification import MultilabelAccuracy, MultilabelAUROC
-
-        self.accuracy = MultilabelAccuracy(num_labels=5)
-        self.auroc = MultilabelAUROC(num_labels=5)
-
-        # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
-        # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
-        # Would be good if we can find a rationale for this in the literature.
-        # self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.ones(1) * 4)
-
-        # # Question: Will it understand this dimensionality? A: Probably yes.
-        # [0, 0, 0, 0, 1]
-        # [0, 0, 0, 0, 1]
-        # [0, 0, 0, 0, 1]
-        # [0, 0, 0, 0, 1]
-        # [0, 0, 0, 0, 1]
-        # [0, 0, 0, 0, 1]
-
-        # [0.1, 0.2, 0.3, 0.4, 0.5]
-        # [0.1, 0.2, 0.3, 0.4, 0.5]
-        # [0.1, 0.2, 0.3, 0.4, 0.5]
-        # [0.1, 0.2, 0.3, 0.4, 0.5]
-        # [0.1, 0.2, 0.3, 0.4, 0.5]
-
-        # self.criterion = NLLLoss()
-        self.linear = nn.Linear(768*2, 1)
-        self.criterion = NLLLoss()
-        self.category_loss = nn.CrossEntropyLoss()
-
-    def configure_optimizers(self):
-        optim = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)
-        if self.hparams.use_gradient_surgery:
-            optim = PCGrad(optim)
-        print(f"Learning rate: {self.hparams.lr}")
-        return optim
-
-    
-    def forward(self, history, candidates):
-        """
-        LEGEND:
-        B - batch size (keep in mind we use an unusual mini-batch approach)
-        H - history size (number of articles in the history, usually 30)
-        C - candidate length
-        D - hidden size (768)
-        history:    B x H x D
-        candidates: B x C x D
-
-        Returns:
-        B x C scores
-        """
-        # Implement a baseline: LinearRegression, SVM?
-        # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
-        # Maybe integrate our own BERT and finetune it?
-        # history = self.transformer(history)
-        # user_embedding = self.transformer(history)
-        # user_embedding = torch.sum(history * user_embedding.softmax(dim=1), dim=1)
-        # user_embedding = (user_embedding.softmax(dim=1) * user_embedding).sum(dim=1)
-        user_embedding = self.user_encoder(history)
-        # Normalization in order to reduce the variance of the dot product
-        
-        
-        b, c, d = candidates.size()
-        # noise = torch.randn((b,c,d), device=self.device)
-        # candidates = candidates + noise
-
-        candidates = self.transformer(candidates)
-        scores = torch.bmm(
-            F.normalize(candidates, dim=-1), F.normalize(user_embedding.unsqueeze(-1), dim=1)
-            # candidates, user_embedding.unsqueeze(-1)
-        )
-        print(scores)
-        print(candidates)
-        exit()
-        scores = scores.squeeze(-1).softmax(-1)
-        # print(candidates, candidates.mean(-1), candidates.std(-1))
-        # exit()
-        
-        # print(user_embedding.unsqueeze(1).repeat(1,c,1).shape)
-        
-        # cat = torch.cat([candidates, user_embedding.unsqueeze(1).repeat(1, c, 1)], dim=-1) # B x C x 2D
-        # scores = self.linear(cat) # ??? 
-        return scores
-
-    def training_step(self, batch, batch_idx):
-        history, candidates, category, labels = batch
-        scores = self(history, candidates)
-
-        # News Ranking Loss
-        news_ranking_loss = self.criterion(scores, labels)
-        # print(f"{news_ranking_loss=}")
-        # print(candidates)
-        # print(labels)
-        # print(scores)
-        # exit()
-        category_scores = self.category_encoder(history)
-
-        category = torch.nn.functional.one_hot(
-            category, num_classes=self.hparams.n_categories
-        ).float()
-        category_loss = self.category_loss(category_scores, category)
-
-        aux_loss = 0.3 * category_loss
-        loss = news_ranking_loss
-        # Gradient Surgery
-        # ================
-        if self.hparams.use_gradient_surgery:
-            optimizer = self.optimizers()
-            optimizer.zero_grad()
-
-            optimizer.optimizer.pc_backward([news_ranking_loss, aux_loss])
-            optimizer.step()
-        # ================
-
-        self.log("train/loss", loss, prog_bar=True)
-        self.log("train/news_ranking_loss", news_ranking_loss)
-        self.log("train/category_loss", category_loss)
-        return loss
-
-    def on_validation_epoch_start(self) -> None:
-        super().on_validation_epoch_start()
-
-        self.predictions.clear()
-        self.labels.clear()
-
-    def validation_step(self, batch, batch_idx):
-        history, candidates, labels = batch
-        scores = self(history, candidates)
-
-        loss = self.criterion(scores, labels)
-
-        accuracy = self.accuracy(scores, labels)
-        auroc = self.auroc(scores, labels.long())
-        self.log("validation/accuracy", accuracy)
-        self.log("validation/auroc", auroc)
-        self.log("validation/loss", loss, prog_bar=True)
-        self.predictions.append(scores.detach().cpu().flatten().float().numpy())
-        self.labels.append(labels.detach().cpu().flatten().float().numpy())
-
-    def on_validation_epoch_end(self) -> None:
-        super().on_validation_epoch_end()
-        metrics = self.metric_evaluator.evaluate()
-        self.log_dict({f"validation/{k}": v for k, v in metrics.evaluations.items()})
-
-    def test_step(self, batch, batch_idx):
-        return self.validation_step(batch, batch_idx)
-
-
 class BERTMultitaskRecommender(LightningModule):
     """
     The main prediction model for the multi-task recommendation system with BERT fine-tuning.
@@ -311,14 +74,15 @@ class BERTMultitaskRecommender(LightningModule):
 
     def __init__(self, epochs=10, lr=1e-3, wd=0.0, steps_per_epoch=None, **kwargs):
         super().__init__()
+        self.automatic_optimization = kwargs.get("use_gradient_surgery", False)
 
         self.save_hyperparameters()
         self.predictions = []
         self.labels = []
         self.bert = BertModel.from_pretrained("google-bert/bert-base-multilingual-cased")
         #self.head = nn.Linear(self.bert.config.hidden_size, num_classes+3+category_num_cls) # 3 for ner
-        self.W = nn.Linear(self.bert.config.hidden_size, self.bert.config.hidden_size)
-        self.q = nn.Parameter(torch.randn(self.bert.config.hidden_size))
+        self.user_encoder = UserEncoder(self.bert.config.hidden_size)
+
         self.metric_evaluator = MetricEvaluator(
             self.labels,
             self.predictions,
@@ -363,6 +127,10 @@ class BERTMultitaskRecommender(LightningModule):
         optimizer = torch.optim.Adam(
             self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
         )
+        
+        if self.hparams.use_gradient_surgery:
+            optimizer = PCGrad(optimizer)
+        
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimizer, max_lr=self.hparams.lr, pct_start=0.1, steps_per_epoch=self.hparams.steps_per_epoch, epochs=self.hparams.epochs, anneal_strategy='linear'
         )
@@ -406,28 +174,52 @@ class BERTMultitaskRecommender(LightningModule):
         candidates["token_type_ids"] = candidates["token_type_ids"].view(batch_size*cand_size, seq_len)
         candidates = self.bert(**candidates).last_hidden_state[:, 0, :].view(batch_size, cand_size, -1)
 
-        att = self.q * F.tanh(self.W(history))
-        att_weight = F.softmax(att, dim=1)
-        # print(f"{att_weight.shape=}")
-
-        user_embedding = torch.sum(history * att_weight, dim = 1)
+        user_embedding = self.user_encoder(history)
         if self.indx % 100 == 0: 
             print(candidates)
         # Normalization in order to reduce the variance of the dot product
         scores = torch.bmm(candidates, user_embedding.unsqueeze(-1))
         return scores.squeeze(-1)
 
-    def training_step(self, batch, batch_idx):
+    def compute_loss(self, batch):
+        # News Ranking Loss
         history, candidates, labels = batch
         
-        category = history.pop("category")
-        _ = candidates.pop("category")
-        
+        categories = history.pop('category')
+        _ = candidates.pop('category')
         scores = self(history, candidates)
+        news_ranking_loss = self.criterion(scores, labels)
 
-        loss = self.criterion(scores, labels)
+        # category_scores = self.category_encoder(history)
+        # category = torch.nn.functional.one_hot(
+            # category, num_classes=self.hparams.n_categories
+        # ).float()
+        # category_loss = self.category_loss(category_scores, category)
+
+        category_loss = torch.tensor(0.0, device=self.device)
+        return {"news_ranking_loss": news_ranking_loss, "category_loss": category_loss, scores: scores, labels: labels}
+
+    def training_step(self, batch, batch_idx):
+        loss = self.compute_loss(batch)
+
+        news_ranking_loss = loss["news_ranking_loss"]
+        category_loss = loss["category_loss"]
+        #
+        aux_loss = 0.3 * category_loss
+        loss = news_ranking_loss
+        # Gradient Surgery
+        # ================
+        if self.hparams.use_gradient_surgery:
+            optimizer = self.optimizers()
+            optimizer.zero_grad()
+
+            optimizer.optimizer.pc_backward([news_ranking_loss, aux_loss])
+            optimizer.step()
+        # ================
 
         self.log("train/loss", loss, prog_bar=True)
+        self.log("train/news_ranking_loss", news_ranking_loss)
+        self.log("train/category_loss", category_loss)
         return loss
 
     def on_validation_epoch_start(self) -> None:
@@ -437,17 +229,16 @@ class BERTMultitaskRecommender(LightningModule):
         self.labels.clear()
 
     def validation_step(self, batch, batch_idx):
-        history, candidates, labels = batch
-
-        category = history.pop("category")
-        _ = candidates.pop("category")
-
-        scores = self(history, candidates)
-
-        loss = self.criterion(scores, labels)
         
-        accuracy = self.accuracy(scores.float(), labels.float())
+        loss = self.compute_loss(batch)
+
+        scores = loss["scores"]
+        labels = loss["labels"]
+        
+        accuracy = self.accuracy(scores, labels)
+        auroc = self.auroc(scores, labels.long())
         self.log("validation/accuracy", accuracy)
+        self.log("validation/auroc", auroc)
         self.log("validation/loss", loss, prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())
@@ -467,3 +258,139 @@ class BERTMultitaskRecommender(LightningModule):
             res.append(indices.tolist())
 
         return res
+
+
+
+class MultitaskRecommender(BERTMultitaskRecommender):
+    """
+    The main prediction model for the multi-task recommendation system we implement.
+    """
+
+    def __init__(
+        self,
+        hidden_dim,
+        nhead=8,
+        num_layers=2,
+        n_categories=5,
+        lr=1e-2,
+        wd=0.0,
+        use_gradient_surgery=False,
+        **kwargs,
+    ):
+        super().__init__()
+        self.automatic_optimization = use_gradient_surgery
+
+        self.save_hyperparameters()
+
+        transformer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim, nhead=nhead, batch_first=True
+        )
+        self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
+
+        self.user_encoder = UserEncoder(hidden_dim)
+        self.category_encoder = CategoryEncoder(hidden_dim, n_categories=n_categories)
+
+
+    def configure_optimizers(self):
+        optim = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)
+        if self.hparams.use_gradient_surgery:
+            optim = PCGrad(optim)
+        print(f"Learning rate: {self.hparams.lr}")
+        return optim
+    
+    def forward(self, history, candidates):
+        """
+        LEGEND:
+        B - batch size (keep in mind we use an unusual mini-batch approach)
+        H - history size (number of articles in the history, usually 30)
+        C - candidate length
+        D - hidden size (768)
+        history:    B x H x D
+        candidates: B x C x D
+
+        Returns:
+        B x C scores
+        """
+        # Implement a baseline: LinearRegression, SVM?
+        # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
+        # Maybe integrate our own BERT and finetune it?
+        # history = self.transformer(history)
+        # user_embedding = self.transformer(history)
+        # user_embedding = torch.sum(history * user_embedding.softmax(dim=1), dim=1)
+        # user_embedding = (user_embedding.softmax(dim=1) * user_embedding).sum(dim=1)
+        user_embedding = self.user_encoder(history)
+        # Normalization in order to reduce the variance of the dot product
+        
+        
+        b, c, d = candidates.size()
+        # noise = torch.randn((b,c,d), device=self.device)
+        # candidates = candidates + noise
+
+        candidates = self.transformer(candidates)
+        scores = torch.bmm(
+            F.normalize(candidates, dim=-1), F.normalize(user_embedding.unsqueeze(-1), dim=1)
+            # candidates, user_embedding.unsqueeze(-1)
+        )
+    
+        scores = scores.squeeze(-1)
+        return scores
+
+    def compute_loss(self, batch):
+        # News Ranking Loss
+        history, candidates, labels = batch
+        
+        scores = self(history, candidates)
+        news_ranking_loss = self.criterion(scores, labels)
+        
+
+        # category_scores = self.category_encoder(history)
+        # category = torch.nn.functional.one_hot(
+            # category, num_classes=self.hparams.n_categories
+        # ).float()
+        # category_loss = self.category_loss(category_scores, category)
+
+        category_loss = torch.tensor(0.0, device=self.device)
+        return {"news_ranking_loss": news_ranking_loss, "category_loss": category_loss, scores: scores, labels: labels}
+
+
+
+def apply_softmax_crossentropy(logits, one_hot_targets, epsilon=1e-10):
+    """
+    Applies softmax and computes the cross-entropy loss for each segment of logits with one-hot encoded targets.
+
+    Args:
+        logits (torch.Tensor): Flattened array of logits.
+        repeats (torch.Tensor): Tensor indicating the number of logits in each segment.
+        one_hot_targets (torch.Tensor): Flattened one-hot encoded target labels.
+        epsilon (float): A small value to add to log inputs to avoid NaN.
+
+    Returns:
+        torch.Tensor: The cross-entropy loss for each segment.
+    """
+
+    # Split logits and one-hot targets according to repeats
+    # split_logits = torch.split(logits, repeats.tolist())
+    # split_targets = torch.split(one_hot_targets, repeats.tolist())
+
+    # Determine the maximum length for padding
+    # max_len = max(repeats)
+
+    # Pad logits and one-hot targets, then stack them
+    # padded_logits = torch.stack([F.pad(segment, (0, max_len - segment.size(0)), 'constant', float('-inf')) for segment in split_logits])
+    # padded_targets = torch.stack([F.pad(segment, (0, max_len - segment.size(0)), 'constant', 0) for segment in split_targets])
+
+    # Apply softmax to logits and add epsilon to avoid NaNs
+    softmaxed_logits = F.softmax(logits, dim=-1)
+    log_softmaxed_logits = torch.log(softmaxed_logits + epsilon)
+
+    # Calculate cross-entropy loss
+    losses = -torch.sum(one_hot_targets * log_softmaxed_logits, dim=-1)
+
+    # Mask out the padded positions
+    mask = (one_hot_targets.sum(dim=-1) > 0).float()
+    masked_losses = losses * mask
+
+    # Sum the losses for each segment and divide by the number of true (non-padded) entries
+    segment_losses = masked_losses.sum(dim=-1) / mask.sum(dim=-1)
+
+    return segment_losses
