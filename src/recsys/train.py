@@ -82,7 +82,7 @@ def main():
                 wd=args.wd,
                 batch_size=args.bs,
                 steps_per_epoch=datamodule.train_dataset.__len__() // args.bs,
-                use_gradient_surgery=args.use_gradient_surgery
+                use_gradient_surgery=args.use_gradient_surgery,
             )
     else:
         if args.load_from_checkpoint:

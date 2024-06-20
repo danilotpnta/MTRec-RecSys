@@ -89,7 +89,7 @@ class NewsDataset(TorchDataset):
                 DEFAULT_CATEGORY_STR_COL,  # category_str
             ]
         ).collect()
-        
+
         self.embeddings_path = embeddings_path
 
         self.history = self._process_history(self.history, history_size, padding_value)
@@ -133,7 +133,7 @@ class NewsDataset(TorchDataset):
             dataset.test_mode = data["test_mode"]
 
         dataset.lookup_matrix = torch.load(path + "/lookup_matrix")
-        
+
         dataset.behaviors = pl.read_parquet(path + "/behaviors.parquet")
         dataset.history = pl.read_parquet(path + "/history.parquet")
         dataset.articles = pl.read_parquet(path + "/articles.parquet")
@@ -176,11 +176,22 @@ class NewsDataset(TorchDataset):
 
         embeddings = pl.read_parquet(self.embeddings_path)
         # Tokenize
-        self.lookup_matrix = embeddings[:,-1].list.to_array(embeddings[0,-1].len()).to_numpy()
-        self.lookup_matrix = np.concatenate([np.zeros((1,self.lookup_matrix.shape[1]), dtype=self.lookup_matrix.dtype), self.lookup_matrix])
+        self.lookup_matrix = (
+            embeddings[:, -1].list.to_array(embeddings[0, -1].len()).to_numpy()
+        )
+        self.lookup_matrix = np.concatenate(
+            [
+                np.zeros(
+                    (1, self.lookup_matrix.shape[1]), dtype=self.lookup_matrix.dtype
+                ),
+                self.lookup_matrix,
+            ]
+        )
         self.lookup_matrix = torch.from_numpy(self.lookup_matrix)
-        
-        self.categories = torch.tensor([0] + self.articles[DEFAULT_CATEGORY_COL].cast(pl.UInt8).to_list())
+
+        self.categories = torch.tensor(
+            [0] + self.articles[DEFAULT_CATEGORY_COL].cast(pl.UInt8).to_list()
+        )
 
         self.max_categories = self.categories.max().item() + 1
         self.article_id_to_idx = {
@@ -266,7 +277,10 @@ class NewsDataset(TorchDataset):
         # Construct the candidate vectors
         if self.test_mode:
             # Special treatment, as they are not guaranteed to be of the same length
-            candidates = [self.lookup_matrix[_] for _ in batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()]
+            candidates = [
+                self.lookup_matrix[_]
+                for _ in batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()
+            ]
             return histories, candidates
         # ========================
 
@@ -360,8 +374,10 @@ class NewsDatasetV2(TorchDataset):
         dataset.lookup_matrix = Dataset.load_from_disk(
             path + "/lookup_matrix", keep_in_memory=True
         )
-        dataset.lookup_matrix = dataset.lookup_matrix.flatten_indices().with_format("torch")
-        
+        dataset.lookup_matrix = dataset.lookup_matrix.flatten_indices().with_format(
+            "torch"
+        )
+
         dataset.behaviors = pl.read_parquet(path + "/behaviors.parquet")
         dataset.history = pl.read_parquet(path + "/history.parquet")
         dataset.articles = pl.read_parquet(path + "/articles.parquet")
@@ -497,7 +513,7 @@ class NewsDatasetV2(TorchDataset):
             self.lookup_matrix[_]
             for _ in batch[DEFAULT_HISTORY_ARTICLE_ID_COL].to_list()
         )
-        
+
         histories = {
             key: torch.cat([val[key] for val in _hist])
             for key in self.lookup_matrix.features.keys()
@@ -560,10 +576,11 @@ class NewsDataModule(LightningDataModule):
         )
         self.dataset = dataset
         self.embeddings = embeddings
-        
+
         self.dataset_type = NewsDataset if dataset_type == "v1" else NewsDatasetV2
         self.collate_fn = None if dataset_type == "v1" else collate_fn
         self.dtype_letter = "v1" if dataset_type == "v1" else "v2"
+
     def prepare_data(self):
         # Download the dataset
         url = CHALLENGE_DATASET[self.dataset]
@@ -619,9 +636,13 @@ class NewsDataModule(LightningDataModule):
             case "fit" | "validation" | None:
                 # Load the training data
                 if not hasattr(self, "train_dataset"):
-                    save_dir = os.path.join(self.data_path, "train", "preprocessed", self.dtype_letter)
+                    save_dir = os.path.join(
+                        self.data_path, "train", "preprocessed", self.dtype_letter
+                    )
                     if os.path.exists(save_dir):
-                        self.train_dataset = self.dataset_type.from_preprocessed(save_dir)
+                        self.train_dataset = self.dataset_type.from_preprocessed(
+                            save_dir
+                        )
 
                     else:
                         df_behaviors, df_history, df_articles = load_data(
@@ -670,10 +691,14 @@ class NewsDataModule(LightningDataModule):
                 # Otherwise, test.
                 if not hasattr(self, "test_dataset"):
                     self._download_test()
-                    save_dir = os.path.join(self.data_path, "preprocessed", self.dtype_letter)
+                    save_dir = os.path.join(
+                        self.data_path, "preprocessed", self.dtype_letter
+                    )
 
                     if os.path.exists(save_dir):
-                        self.test_dataset = self.dataset_type.from_preprocessed(save_dir)
+                        self.test_dataset = self.dataset_type.from_preprocessed(
+                            save_dir
+                        )
                         return
                     df_behaviors, df_history, df_articles = load_data(
                         self.data_path, split="test"
