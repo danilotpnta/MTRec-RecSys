@@ -10,7 +10,7 @@ from ebrec.evaluation.metrics_protocols import (
     RootMeanSquaredError,
 )
 from transformers import AutoTokenizer, BertModel
-from torchmetrics import Accuracy, AUCROC
+from torchmetrics import Accuracy, AUROC
 from pytorch_lightning import LightningModule
 from recsys.utils.gradient_surgery import PCGrad
 from torch import nn
@@ -358,7 +358,7 @@ class BERTMultitaskRecommender(LightningModule):
         )
         
         self.accuracy = Accuracy(task="multiclass", num_classes=5)
-        self.auc_roc = AUCROC(task="multiclass", num_classes=5)
+        self.auc_roc = AUROC(task="multiclass", num_classes=5)
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         # Would be good if we can find a rationale for this in the literature.
