@@ -9,7 +9,7 @@
 #SBATCH --cpus-per-task=12
 #SBATCH --time=00:59:00
 #SBATCH --mem=64GB
-#SBATCH --output=/home/scur1595/MTRec-RecSys/%A.out
+#SBATCH --output=/scratch-shared/recsys/%A.out
 
 date
 
