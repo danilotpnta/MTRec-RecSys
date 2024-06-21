@@ -9,8 +9,10 @@ from ebrec.evaluation.metrics_protocols import (
     NdcgScore,
     RootMeanSquaredError,
 )
-from transformers import AutoTokenizer, BertModel
 
+from torchmetrics import Accuracy, AUROC
+from transformers import AutoTokenizer, BertModel
+from sklearn.metrics import roc_auc_score
 from pytorch_lightning import LightningModule
 from recsys.utils.gradient_surgery import PCGrad
 from torch import nn
@@ -92,20 +94,19 @@ class BERTMultitaskRecommender(LightningModule):
             self.labels,
             self.predictions,
             metric_functions=[
-                AucScore(),
+                #AucScore(),
                 MrrScore(),
                 NdcgScore(k=10),
                 NdcgScore(k=5),
-                LogLossScore(),
-                RootMeanSquaredError(),
-                F1Score(),
+                #LogLossScore(),
+                #RootMeanSquaredError(),
+                #F1Score(),
             ],
         )
         self.indx = 0
-        from torchmetrics import Accuracy
 
         self.accuracy = Accuracy(task="multilabel", num_labels=5)
-
+        self.auc_roc = AUROC(task="multiclass", num_classes=5)
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         # Would be good if we can find a rationale for this in the literature.
@@ -150,7 +151,7 @@ class BERTMultitaskRecommender(LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "frequency": "1",
+                "frequency": 1,
                 "interval": "step",
             },
         }
@@ -272,9 +273,12 @@ class BERTMultitaskRecommender(LightningModule):
 
         scores = loss["scores"]
         labels = loss["labels"]
+        labels_indices = labels.argmax(dim=-1)
 
-        accuracy = self.accuracy(scores, labels)
+        accuracy = self.accuracy(scores, labels_indices)
+        auc_roc = self.auc_roc(scores, labels_indices)
         self.log("validation/accuracy", accuracy)
+        self.log("validation/auc_roc", auc_roc)
         self.log("validation/loss", loss["news_ranking_loss"], prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())
@@ -316,6 +320,33 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         self.automatic_optimization = use_gradient_surgery
 
         self.save_hyperparameters()
+        self.predictions = []
+        self.labels = []
+        self.bert = BertModel.from_pretrained("google-bert/bert-base-multilingual-cased")
+        #self.head = nn.Linear(self.bert.config.hidden_size, num_classes+3+category_num_cls) # 3 for ner
+        self.W = nn.Linear(self.bert.config.hidden_size, self.bert.config.hidden_size)
+        self.q = nn.Parameter(torch.randn(self.bert.config.hidden_size))
+        self.metric_evaluator = MetricEvaluator(
+            self.labels,
+            self.predictions,
+            metric_functions=[
+                #AucScore(),
+                MrrScore(),
+                NdcgScore(k=10),
+                NdcgScore(k=5),
+                LogLossScore(),
+                #RootMeanSquaredError(),
+                #F1Score(),
+            ],
+        )
+        #self.indx = 0
+        self.accuracy = Accuracy(task="multiclass", num_labels=5)
+        self.auc_roc = AUROC(task="multiclass", num_labels=5)
+        
+        # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
+        # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
+        # Would be good if we can find a rationale for this in the literature.
+        # self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.ones(1) * 4)
 
         # transformer = nn.TransformerEncoderLayer(
         #     d_model=hidden_dim, nhead=nhead, batch_first=True
@@ -325,7 +356,22 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         self.user_encoder = UserEncoder(hidden_dim)
         self.category_encoder = CategoryEncoder(hidden_dim, n_categories=n_categories)
 
-        del self.bert
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(
+            self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
+        )
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, max_lr=self.hparams.lr, pct_start=0.1, steps_per_epoch=self.hparams.steps_per_epoch, epochs=self.hparams.epochs, anneal_strategy='linear'
+        )
+        
+        return {
+            "optimizer": optimizer, 
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "frequency": 1,
+                "interval": "step",
+            },
+        }  
 
     def forward(self, history, candidates):
         """
@@ -363,11 +409,11 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         scores = self(history, candidates)
         news_ranking_loss = self.criterion(scores, labels)
 
-        # category_scores = self.category_encoder(history)
-        # category = torch.nn.functional.one_hot(
-        # category, num_classes=self.hparams.n_categories
-        # ).float()
-        # category_loss = self.category_loss(category_scores, category)
+        #if self.indx % 100:
+        #    print(scores)
+        #    print(labels)
+
+        loss = self.criterion(scores, labels)
 
         category_loss = torch.tensor(0.0, device=self.device)
         return {
@@ -377,7 +423,7 @@ class MultitaskRecommender(BERTMultitaskRecommender):
             "labels": labels,
         }
 
-
+'''
 def apply_softmax_crossentropy(logits, one_hot_targets, epsilon=1e-10):
     """
     Applies softmax and computes the cross-entropy loss for each segment of logits with one-hot encoded targets.
@@ -392,9 +438,15 @@ def apply_softmax_crossentropy(logits, one_hot_targets, epsilon=1e-10):
         torch.Tensor: The cross-entropy loss for each segment.
     """
 
-    # Split logits and one-hot targets according to repeats
-    # split_logits = torch.split(logits, repeats.tolist())
-    # split_targets = torch.split(one_hot_targets, repeats.tolist())
+    loss = self.criterion(scores, labels)
+    #if self.indx % 100 == 0:
+    #    print(scores)
+    #    print(labels)
+    accuracy = self.accuracy(scores.float(), labels.argmax(dim=-1))
+    self.log("validation/accuracy", accuracy)
+    self.log("validation/loss", loss, prog_bar=True)
+    self.predictions.append(scores.detach().cpu().flatten().float().numpy())
+    self.labels.append(labels.detach().cpu().flatten().float().numpy())
 
     # Determine the maximum length for padding
     # max_len = max(repeats)
@@ -418,3 +470,229 @@ def apply_softmax_crossentropy(logits, one_hot_targets, epsilon=1e-10):
     segment_losses = masked_losses.sum(dim=-1) / mask.sum(dim=-1)
 
     return segment_losses
+'''
+
+class BERTMultitaskRecommenderOG(LightningModule):
+    """
+    The main prediction model for the multi-task recommendation system with BERT fine-tuning.
+    """
+
+    def __init__(self, epochs=10, lr=1e-3, wd=0.0, steps_per_epoch=None, **kwargs):
+        super().__init__()
+        self.automatic_optimization = kwargs.get("use_gradient_surgery", False)
+
+        self.save_hyperparameters()
+        self.predictions = []
+        self.labels = []
+        self.bert = BertModel.from_pretrained(
+            "google-bert/bert-base-multilingual-cased"
+        )
+        # self.head = nn.Linear(self.bert.config.hidden_size, num_classes+3+category_num_cls) # 3 for ner
+        self.user_encoder = UserEncoder(self.bert.config.hidden_size)
+
+        self.metric_evaluator = MetricEvaluator(
+            self.labels,
+            self.predictions,
+            metric_functions=[
+                AucScore(),
+                MrrScore(),
+                NdcgScore(k=10),
+                NdcgScore(k=5),
+                LogLossScore(),
+                RootMeanSquaredError(),
+                F1Score(),
+            ],
+        )
+        #self.indx = 0
+        from torchmetrics import Accuracy
+
+        self.accuracy = Accuracy(task="multiclass", num_classes=5)
+
+        # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
+        # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
+        # Would be good if we can find a rationale for this in the literature.
+        # self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.ones(1) * 4)
+
+        # # Question: Will it understand this dimensionality? A: Probably yes.
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+        # [0, 0, 0, 0, 1]
+
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+        # [0.1, 0.2, 0.3, 0.4, 0.5]
+
+        # # Question: Is pos weight correct? TODO: Experiment with both.
+        self.criterion = nn.CrossEntropyLoss()
+        # self.criterion = NLLLoss()
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(
+            self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
+        )
+
+        if self.hparams.use_gradient_surgery:
+            optimizer = PCGrad(optimizer)
+
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=self.hparams.lr,
+            pct_start=0.1,
+            steps_per_epoch=self.hparams.steps_per_epoch,
+            epochs=self.hparams.epochs,
+            anneal_strategy="linear",
+        )
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "frequency": 1,
+                "interval": "step",
+            },
+        }
+
+    def forward(self, history, candidates):
+        """
+        LEGEND:
+        B - batch size (keep in mind we use an unusual mini-batch approach)
+        H - history size (number of articles in the history, usually 30)
+        C - candidate length
+        D - hidden size (768)
+        history:    B x H x D
+        candidates: B x C x D
+
+        Returns:
+        B x C scores
+        """
+        # Implement a baseline: LinearRegression, SVM?
+        # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
+        # history = self.transformer(history)
+        # user_embedding = self.transformer(history).mean(dim=1)
+        #self.indx += 1
+        batch_size, hist_size, seq_len = history["input_ids"].size()
+        history["input_ids"] = history["input_ids"].view(
+            batch_size * hist_size, seq_len
+        )
+        history["attention_mask"] = history["attention_mask"].view(
+            batch_size * hist_size, seq_len
+        )
+        history["token_type_ids"] = history["token_type_ids"].view(
+            batch_size * hist_size, seq_len
+        )
+        history = (
+            self.bert(**history)
+            .last_hidden_state[:, 0, :]
+            .view(batch_size, hist_size, -1)
+        )
+
+        batch_size, cand_size, seq_len = candidates["input_ids"].size()
+        candidates["input_ids"] = candidates["input_ids"].view(
+            batch_size * cand_size, seq_len
+        )
+        candidates["attention_mask"] = candidates["attention_mask"].view(
+            batch_size * cand_size, seq_len
+        )
+        candidates["token_type_ids"] = candidates["token_type_ids"].view(
+            batch_size * cand_size, seq_len
+        )
+        candidates = (
+            self.bert(**candidates)
+            .last_hidden_state[:, 0, :]
+            .view(batch_size, cand_size, -1)
+        )
+
+        user_embedding = self.user_encoder(history)
+        #if self.indx % 100 == 0:
+        #    print(candidates)
+        # Normalization in order to reduce the variance of the dot product
+        scores = torch.bmm(
+            candidates,
+            user_embedding.unsqueeze(-1),
+        )
+        return scores.squeeze(-1)
+
+    def compute_loss(self, batch):
+        # News Ranking Loss
+        history, candidates, labels = batch
+
+        categories = history.pop("category")
+        _ = candidates.pop("category")
+        scores = self(history, candidates)
+        news_ranking_loss = self.criterion(scores, labels)
+
+        # category_scores = self.category_encoder(history)
+        # category = torch.nn.functional.one_hot(
+        # category, num_classes=self.hparams.n_categories
+        # ).float()
+        # category_loss = self.category_loss(category_scores, category)
+
+        category_loss = torch.tensor(0.0, device=self.device)
+        return {
+            "news_ranking_loss": news_ranking_loss,
+            "category_loss": category_loss,
+            "scores": scores,
+            "labels": labels,
+        }
+
+    def training_step(self, batch, batch_idx):
+        loss = self.compute_loss(batch)
+
+        news_ranking_loss = loss["news_ranking_loss"]
+        category_loss = loss["category_loss"]
+        #
+        aux_loss = 0.3 * category_loss
+        loss = news_ranking_loss
+        # Gradient Surgery
+        # ================
+        if self.hparams.use_gradient_surgery:
+            optimizer = self.optimizers()
+            optimizer.zero_grad()
+
+            optimizer.optimizer.pc_backward([news_ranking_loss, aux_loss])
+            optimizer.step()
+        # ================
+
+        self.log("train/loss", loss, prog_bar=True)
+        self.log("train/news_ranking_loss", news_ranking_loss)
+        self.log("train/category_loss", category_loss)
+        return loss
+
+    def on_validation_epoch_start(self) -> None:
+        super().on_validation_epoch_start()
+
+        self.predictions.clear()
+        self.labels.clear()
+
+    def validation_step(self, batch, batch_idx):
+        loss = self.compute_loss(batch)
+
+        scores = loss["scores"]
+        labels = loss["labels"]
+
+        accuracy = self.accuracy(scores, labels.argmax(dim=-1))
+        self.log("validation/accuracy", accuracy)
+        self.log("validation/loss", loss["news_ranking_loss"], prog_bar=True)
+        self.predictions.append(scores.detach().cpu().flatten().float().numpy())
+        self.labels.append(labels.detach().cpu().flatten().float().numpy())
+
+    def on_validation_epoch_end(self) -> None:
+        super().on_validation_epoch_end()
+        metrics = self.metric_evaluator.evaluate()
+        self.log_dict({f"validation/{k}": v for k, v in metrics.evaluations.items()})
+
+    def test_step(self, batch, batch_idx):
+        res = []
+        
+        histories, candidates = batch
+        for hist, cand in zip(histories, candidates):
+            scores = self(hist, cand)
+            indices = torch.argsort(scores, descending=True) + 1
+            res.append((scores.tolist(), indices.tolist()))
+
+        return res
