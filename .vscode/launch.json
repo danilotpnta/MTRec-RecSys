@@ -13,7 +13,8 @@
                 "--data",
                 "data",
                 "--use_precomputed_embeddings"
-            ]
+            ],
+            // "justMyCode": false
         }
     ]
 }

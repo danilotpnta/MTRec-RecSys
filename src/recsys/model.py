@@ -81,7 +81,7 @@ class BERTMultitaskRecommender(LightningModule):
         super().__init__()
         self.automatic_optimization = kwargs.get("use_gradient_surgery", False)
 
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore="embeddings")
         self.predictions = []
         self.labels = []
         self.bert = BertModel.from_pretrained(
@@ -320,8 +320,6 @@ class MultitaskRecommender(BERTMultitaskRecommender):
     ):
         super().__init__()
         self.automatic_optimization = use_gradient_surgery
-
-        self.save_hyperparameters()
 
         # transformer = nn.TransformerEncoderLayer(
         #     d_model=hidden_dim, nhead=nhead, batch_first=True

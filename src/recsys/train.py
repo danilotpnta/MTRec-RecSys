@@ -91,6 +91,7 @@ def main():
         if args.load_from_checkpoint:
             model = MultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
         else:
+            embeddings = datamodule.train_dataset.lookup_matrix.detach().clone()
             model = MultitaskRecommender(
                 args.hidden_dim,
                 nhead=args.nhead,
@@ -100,7 +101,7 @@ def main():
                 wd=args.wd,
                 use_gradient_surgery=args.use_gradient_surgery,
                 batch_size=args.bs,
-                embeddings=datamodule.train_dataset.lookup_matrix,
+                embeddings=embeddings,
                 steps_per_epoch=datamodule.train_dataset.__len__() // args.bs,
             )
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume_from_checkpoint)
