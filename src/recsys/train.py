@@ -1,8 +1,8 @@
 import argparse
 
 from pytorch_lightning import Trainer, seed_everything
-from lightning.pytorch.callbacks import LearningRateMonitor
-from lightning.pytorch.loggers import TensorBoardLogger
+from pytorch_lightning.callbacks import LearningRateMonitor
+from pytorch_lightning.loggers import TensorBoardLogger
 from recsys.dataset import NewsDataModule
 from recsys.model import BERTMultitaskRecommender
 
