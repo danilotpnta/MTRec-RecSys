@@ -434,15 +434,15 @@ def apply_softmax_crossentropy(logits, one_hot_targets, epsilon=1e-10):
         torch.Tensor: The cross-entropy loss for each segment.
     """
 
-        loss = self.criterion(scores, labels)
-        #if self.indx % 100 == 0:
-        #    print(scores)
-        #    print(labels)
-        accuracy = self.accuracy(scores.float(), labels.argmax(dim=-1))
-        self.log("validation/accuracy", accuracy)
-        self.log("validation/loss", loss, prog_bar=True)
-        self.predictions.append(scores.detach().cpu().flatten().float().numpy())
-        self.labels.append(labels.detach().cpu().flatten().float().numpy())
+    loss = self.criterion(scores, labels)
+    #if self.indx % 100 == 0:
+    #    print(scores)
+    #    print(labels)
+    accuracy = self.accuracy(scores.float(), labels.argmax(dim=-1))
+    self.log("validation/accuracy", accuracy)
+    self.log("validation/loss", loss, prog_bar=True)
+    self.predictions.append(scores.detach().cpu().flatten().float().numpy())
+    self.labels.append(labels.detach().cpu().flatten().float().numpy())
 
     # Determine the maximum length for padding
     # max_len = max(repeats)
