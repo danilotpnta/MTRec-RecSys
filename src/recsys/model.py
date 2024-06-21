@@ -334,7 +334,7 @@ class BERTMultitaskRecommender(LightningModule):
         )
         self.indx = 0
         from torchmetrics import Accuracy
-        self.accuracy = Accuracy(task="multilabel", num_labels=5)
+        self.accuracy = Accuracy(task="multiclass", num_labels=5)
         
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
@@ -371,7 +371,7 @@ class BERTMultitaskRecommender(LightningModule):
             "optimizer": optimizer, 
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "frequency": "1",
+                "frequency": 1,
                 "interval": "step",
             },
         }  
@@ -425,6 +425,10 @@ class BERTMultitaskRecommender(LightningModule):
         
         scores = self(history, candidates)
 
+        if self.indx % 100:
+            print(scores)
+            print(labels)
+
         loss = self.criterion(scores, labels)
 
         self.log("train/loss", loss, prog_bar=True)
@@ -445,8 +449,10 @@ class BERTMultitaskRecommender(LightningModule):
         scores = self(history, candidates)
 
         loss = self.criterion(scores, labels)
-        
-        accuracy = self.accuracy(scores.float(), labels.float())
+        if self.indx % 100 == 0:
+            print(scores)
+            print(labels)
+        accuracy = self.accuracy(scores.float(), labels.argmax(dim=-1))
         self.log("validation/accuracy", accuracy)
         self.log("validation/loss", loss, prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
