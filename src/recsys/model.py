@@ -273,12 +273,12 @@ class BERTMultitaskRecommender(LightningModule):
 
         scores = loss["scores"]
         labels = loss["labels"]
-        labels_indices = labels.argmax(dim=-1)
+        # labels_indices = labels.argmax(dim=-1)
 
-        accuracy = self.accuracy(scores, labels_indices)
-        auc_roc = self.auc_roc(scores, labels_indices)
-        self.log("validation/accuracy", accuracy)
-        self.log("validation/auc_roc", auc_roc)
+        # accuracy = self.accuracy(scores, labels_indices)
+        # auc_roc = self.auc_roc(scores, labels_indices)
+        # self.log("validation/accuracy", accuracy)
+        # self.log("validation/auc_roc", auc_roc)
         self.log("validation/loss", loss["news_ranking_loss"], prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())
