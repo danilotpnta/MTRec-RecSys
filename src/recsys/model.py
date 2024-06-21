@@ -277,7 +277,7 @@ class BERTMultitaskRecommender(LightningModule):
         self.log("validation/accuracy", accuracy)
         self.log("validation/loss", loss["news_ranking_loss"], prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
-        self.labels.append(labels.detach().cpu().flatten().float().numpy())
+        self.labels.append(labels.detach().cpu().flatten().float().numpy().argmax(dim=-1))
 
     def on_validation_epoch_end(self) -> None:
         super().on_validation_epoch_end()
