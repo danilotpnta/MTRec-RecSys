@@ -326,7 +326,7 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         # )
         # self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
 
-        self.embedding = nn.Embedding.from_pretrained(embeddings, padding_idx=0)
+        self.embedding = nn.Embedding.from_pretrained(embeddings, padding_idx=0, freeze=False)
         self.user_encoder = UserEncoder(hidden_dim)
         self.category_encoder = CategoryEncoder(hidden_dim, n_categories=n_categories)
 

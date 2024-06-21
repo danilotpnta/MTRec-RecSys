@@ -270,14 +270,18 @@ class NewsDataset(TorchDataset):
         batch = self.data[index]
 
         # Construct the history vectors
-        histories = torch.from_numpy(batch[DEFAULT_HISTORY_ARTICLE_ID_COL].to_numpy(writable=True)[0])
+        histories = torch.from_numpy(
+            batch[DEFAULT_HISTORY_ARTICLE_ID_COL].to_numpy(writable=True)[0]
+        )
 
         # Early return for test mode
         # ========================
         # Construct the candidate vectors
         if self.test_mode:
             # Special treatment, as they are not guaranteed to be of the same length
-            candidates = torch.from_numpy(batch[DEFAULT_INVIEW_ARTICLES_COL].to_numpy(writable=True)[0])
+            candidates = torch.from_numpy(
+                batch[DEFAULT_INVIEW_ARTICLES_COL].to_numpy(writable=True)[0]
+            )
 
             return histories, candidates
         # ========================
@@ -514,17 +518,11 @@ class NewsDatasetV2(TorchDataset):
         batch = self.data[index]
 
         # Construct the history vectors
-        _hist = list(
-            self.lookup_matrix[_]
-            for _ in batch[DEFAULT_HISTORY_ARTICLE_ID_COL].to_list()
-        )
+        histories = self.lookup_matrix[
+            batch[DEFAULT_HISTORY_ARTICLE_ID_COL].to_numpy()[0]
+        ]
 
-        histories = {
-            key: torch.cat([val[key] for val in _hist])
-            for key in self.lookup_matrix.features.keys()
-        }
-
-        _cand = batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()
+        _cand = batch[DEFAULT_INVIEW_ARTICLES_COL].to_numpy()[0]
         # Early return for test mode
         # ========================
         # Construct the candidate vectors
@@ -539,11 +537,10 @@ class NewsDatasetV2(TorchDataset):
         # ========================
 
         # Use [0] as in most cases the dataloader only calls for a single item. Not pretty at all, but whatever.
-        labels = batch[DEFAULT_LABELS_COL].to_list()[0]
+        labels = batch[DEFAULT_LABELS_COL].to_numpy()[0]
         idxs = sampling_strategy(labels, self.max_labels)
-        _cand = batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()[0]
-        _cand = [_cand[i] for i in idxs]
-        labels = [labels[i] for i in idxs]
+        _cand = _cand[idxs]
+        labels = labels[idxs]
 
         candidates = self.lookup_matrix[_cand]
         y = torch.tensor(labels).float().squeeze()
@@ -797,16 +794,15 @@ def collate_fn(batch):
 
 
 def sampling_strategy(labels, num_choices):
-    labels = np.array(labels)
     idxs = np.argsort(labels)
-    
+
     pos_idx_start = np.where(labels[idxs] == 1)[0]
     if not isinstance(pos_idx_start, int):
         pos_idx_start = pos_idx_start[0]
     pos_idxs = batch_random_choice_with_reset(idxs[pos_idx_start:], 1)
     neg_idxs = batch_random_choice_with_reset(idxs[:pos_idx_start], num_choices - 1)
     idxs = np.concatenate((neg_idxs, pos_idxs))
-    shuffle(idxs)
+    np.random.shuffle(idxs)
     return idxs
 
 
