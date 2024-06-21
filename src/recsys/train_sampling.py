@@ -4,8 +4,7 @@ import pickle
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.profilers import AdvancedProfiler
-from recsys.dataset import NewsDataModule
+from recsys.dataset import NewsDataModuleSampling
 from recsys.model import BERTMultitaskRecommender, MultitaskRecommender, BERTMultitaskRecommenderOG
 from ebrec.utils._python import write_submission_file
 
@@ -45,19 +44,16 @@ def main():
     # Set seed
     seed_everything(args.seed)
 
-    datamodule = NewsDataModule(
+    datamodule = NewsDataModuleSampling(
         args.data_path,
         batch_size=args.bs,
         dataset=args.dataset,
         embeddings=args.embeddings_type,
         num_workers=args.num_workers,
-        max_length=args.max_length,
-        padding_value=0,
-        dataset_type="v1" if args.use_precomputed_embeddings else "v2",
+        padding_value=None
     )
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
-    profiler = AdvancedProfiler('profiler_results.txt')
     trainer = Trainer(
         max_epochs=args.epochs,
         num_sanity_val_steps=1,
@@ -65,7 +61,7 @@ def main():
         check_val_every_n_epoch=args.check_val_every_n_epoch,
         precision="bf16-mixed",
         log_every_n_steps=1,
-        profiler=profiler,
+        profiler="advanced",
         callbacks=[lr_monitor],
         logger=TensorBoardLogger("lightning_logs", name="bert_recommender"),
     )
@@ -73,35 +69,20 @@ def main():
     datamodule.prepare_data()
     datamodule.setup()
 
-    if not args.use_precomputed_embeddings:
-        if args.load_from_checkpoint:
-            model = BERTMultitaskRecommender.load_from_checkpoint(
-                args.load_from_checkpoint
-            )
-        else:
-            model = BERTMultitaskRecommender(
-                epochs=args.epochs,
-                lr=args.lr,
-                wd=args.wd,
-                batch_size=args.bs,
-                steps_per_epoch=datamodule.train_dataset.__len__() // args.bs,
-                use_gradient_surgery=args.use_gradient_surgery,
-            )
+    if args.load_from_checkpoint:
+        model = BERTMultitaskRecommender.load_from_checkpoint(
+            args.load_from_checkpoint
+        )
     else:
-        if args.load_from_checkpoint:
-            model = MultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
-        else:
-            model = MultitaskRecommender(
-                args.hidden_dim,
-                nhead=args.nhead,
-                num_layers=args.num_layers,
-                n_categories=datamodule.train_dataset.max_categories,
-                lr=args.lr,
-                wd=args.wd,
-                use_gradient_surgery=args.use_gradient_surgery,
-                batch_size=args.bs,
-                steps_per_epoch=datamodule.train_dataset.__len__() // args.bs,
-            )
+        model = BERTMultitaskRecommender(
+            epochs=args.epochs,
+            lr=args.lr,
+            wd=args.wd,
+            batch_size=args.bs,
+            steps_per_epoch=datamodule.train_dataset.__len__() // args.bs,
+            use_gradient_surgery=args.use_gradient_surgery,
+        )
+    
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume_from_checkpoint)
 
     # Make predictions on the test set
