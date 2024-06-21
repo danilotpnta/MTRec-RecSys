@@ -1217,7 +1217,7 @@ def collate_fn(batch):
 def sampling_strategy(labels, num_choices):
     labels = np.array(labels)
     idxs = np.argsort(labels)
-    pos_idx_start = np.where(labels == 1)[0].item()
+    pos_idx_start = np.where(labels[idxs] == 1)[0].item()
     pos_idxs = batch_random_choice_with_reset(idxs[pos_idx_start:], 1)
     neg_idxs = batch_random_choice_with_reset(idxs[:pos_idx_start], num_choices - 1)
     idxs = np.concatenate((neg_idxs, pos_idxs))
@@ -1230,6 +1230,7 @@ def batch_random_choice_with_reset(population, num_choices):
     population_size = len(population)
     choices = []
 
+    # NOTE: Might hang your program if population_size is 0.
     while num_choices > 0:
         if num_choices >= population_size:
             # If more choices needed than the population size, take the whole population
