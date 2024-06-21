@@ -10,7 +10,7 @@ from ebrec.evaluation.metrics_protocols import (
     RootMeanSquaredError,
 )
 
-from torchmetrics import Accuracy, AUCROC
+from torchmetrics import Accuracy, AUROC
 from transformers import AutoTokenizer, BertModel
 from sklearn.metrics import roc_auc_score
 from pytorch_lightning import LightningModule
@@ -106,7 +106,7 @@ class BERTMultitaskRecommender(LightningModule):
         self.indx = 0
 
         self.accuracy = Accuracy(task="multilabel", num_labels=5)
-        self.auc_roc = AUCROC(task="multiclass", num_classes=5)
+        self.auc_roc = AUROC(task="multiclass", num_classes=5)
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         # Would be good if we can find a rationale for this in the literature.
@@ -341,7 +341,7 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         )
         #self.indx = 0
         self.accuracy = Accuracy(task="multiclass", num_labels=5)
-        self.auc_roc = AUCROC(task="multiclass", num_labels=5)
+        self.auc_roc = AUROC(task="multiclass", num_labels=5)
         
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
