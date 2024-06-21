@@ -9,8 +9,10 @@ from ebrec.evaluation.metrics_protocols import (
     NdcgScore,
     RootMeanSquaredError,
 )
-from transformers import AutoTokenizer, BertModel
 
+from torchmetrics import Accuracy, AUCROC
+from transformers import AutoTokenizer, BertModel
+from sklearn.metrics import roc_auc_score
 from pytorch_lightning import LightningModule
 from recsys.utils.gradient_surgery import PCGrad
 from torch import nn
@@ -92,20 +94,19 @@ class BERTMultitaskRecommender(LightningModule):
             self.labels,
             self.predictions,
             metric_functions=[
-                AucScore(),
+                #AucScore(),
                 MrrScore(),
                 NdcgScore(k=10),
                 NdcgScore(k=5),
-                LogLossScore(),
-                RootMeanSquaredError(),
-                F1Score(),
+                #LogLossScore(),
+                #RootMeanSquaredError(),
+                #F1Score(),
             ],
         )
         self.indx = 0
-        from torchmetrics import Accuracy
 
         self.accuracy = Accuracy(task="multilabel", num_labels=5)
-
+        self.auc_roc = AUCROC(task="multiclass", num_classes=5)
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         # Would be good if we can find a rationale for this in the literature.
@@ -150,7 +151,7 @@ class BERTMultitaskRecommender(LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "frequency": "1",
+                "frequency": 1,
                 "interval": "step",
             },
         }
@@ -272,12 +273,15 @@ class BERTMultitaskRecommender(LightningModule):
 
         scores = loss["scores"]
         labels = loss["labels"]
+        labels_indices = labels.argmax(dim=-1)
 
-        accuracy = self.accuracy(scores, labels)
+        accuracy = self.accuracy(scores, labels_indices)
+        auc_roc = self.auc_roc(scores, labels_indices)
         self.log("validation/accuracy", accuracy)
+        self.log("validation/auc_roc", auc_roc)
         self.log("validation/loss", loss["news_ranking_loss"], prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
-        self.labels.append(labels.detach().cpu().flatten().float().numpy().argmax(dim=-1))
+        self.labels.append(labels.detach().cpu().flatten().float().numpy())
 
     def on_validation_epoch_end(self) -> None:
         super().on_validation_epoch_end()
@@ -326,18 +330,18 @@ class MultitaskRecommender(BERTMultitaskRecommender):
             self.labels,
             self.predictions,
             metric_functions=[
-                AucScore(),
+                #AucScore(),
                 MrrScore(),
                 NdcgScore(k=10),
                 NdcgScore(k=5),
                 LogLossScore(),
-                RootMeanSquaredError(),
-                F1Score(),
+                #RootMeanSquaredError(),
+                #F1Score(),
             ],
         )
         #self.indx = 0
-        from torchmetrics import Accuracy
         self.accuracy = Accuracy(task="multiclass", num_labels=5)
+        self.auc_roc = AUCROC(task="multiclass", num_labels=5)
         
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
