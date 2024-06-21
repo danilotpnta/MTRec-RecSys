@@ -570,7 +570,7 @@ class BERTMultitaskRecommenderOG(LightningModule):
         # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
         # history = self.transformer(history)
         # user_embedding = self.transformer(history).mean(dim=1)
-        self.indx += 1
+        #self.indx += 1
         batch_size, hist_size, seq_len = history["input_ids"].size()
         history["input_ids"] = history["input_ids"].view(
             batch_size * hist_size, seq_len

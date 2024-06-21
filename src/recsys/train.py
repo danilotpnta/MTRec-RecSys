@@ -5,7 +5,7 @@ from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.loggers import TensorBoardLogger
 from recsys.dataset import NewsDataModule
-from recsys.model import BERTMultitaskRecommender, MultitaskRecommender
+from recsys.model import BERTMultitaskRecommender, MultitaskRecommender, BERTMultitaskRecommenderOG
 from ebrec.utils._python import write_submission_file
 
 def arg_list():
