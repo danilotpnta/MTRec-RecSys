@@ -447,7 +447,7 @@ def print_dict_summary(name: str, d: dict, num_samples: int = 3, max_keys: int =
 
 
 
-def create_lookup_objects(
+def create_lookup_objects_(
     lookup_dictionary: dict[int, np.array], unknown_representation: str
 ) -> tuple[dict[int, pl.Series], np.array]:
     """Creates lookup objects for efficient data retrieval.
@@ -520,3 +520,72 @@ def create_lookup_objects(
 
     lookup_matrix = np.vstack([UNKNOWN_ARRAY, lookup_matrix])
     return lookup_indexes, lookup_matrix
+
+def create_lookup_objects(
+    lookup_dictionary: dict[int, np.array], unknown_representation: str
+) -> tuple[dict[int, pl.Series], np.array]:
+
+
+    '''
+    {
+        "key1": {
+            "tokens": "value1",
+            "ner": "value2"
+        },
+        "key2": {
+            "tokens": "value3",
+            "ner": "value4"
+        },
+        ...
+    }
+
+    Key: 3037230
+        tokens: shape = (768,), 3 sample = [0.11113205 0.11965288 0.0644056 ]
+        ner_clusters: shape = (0,), 3 sample = []
+
+    Key: 3044020
+        tokens: shape = (768,), 3 sample = [0.11347201 0.09755581 0.07951117]
+        ner_clusters: shape = (2,), 3 sample = ['Harry' 'James Hewitt']
+
+    Key: 3057622
+        tokens: shape = (768,), 3 sample = [0.09072612 0.12552635 0.06024803]
+        ner_clusters: shape = (0,), 3 sample = []
+
+        .. and 11774 more keys
+    '''
+
+    # MAKE LOOKUP DICTIONARY
+    lookup_indexes = {
+        id: pl.Series("", [i]) for i, id in enumerate(lookup_dictionary, start=1)
+    }
+
+    lookup_matrix = []
+    ner_matrix = []
+    
+    for values in lookup_dictionary.values():
+        lookup_matrix.append(values['tokens'])
+        ner_matrix.append(values['ner_clusters'])
+
+    lookup_matrix = np.array(lookup_matrix)
+    # print("ner_matrix", ner_matrix)
+    # print("\n")
+    # import sys
+    # sys.exit()
+    ner_matrix = np.array(ner_matrix)
+
+
+    if unknown_representation == "zeros":
+        UNKNOWN_ARRAY = np.zeros(lookup_matrix.shape[1], dtype=lookup_matrix.dtype)
+        UNKNOWN_ARRAY_NER = np.zeros(ner_matrix.shape[1], dtype=ner_matrix.dtype)
+    elif unknown_representation == "mean":
+        UNKNOWN_ARRAY = np.mean(lookup_matrix, axis=0, dtype=lookup_matrix.dtype)
+        UNKNOWN_ARRAY_NER = np.mean(ner_matrix, axis=0, dtype=ner_matrix.dtype)
+    else:
+        raise ValueError(
+            f"'{unknown_representation}' is not a specified method. Can be either 'zeros' or 'mean'."
+        )
+
+    lookup_matrix = np.vstack([UNKNOWN_ARRAY, lookup_matrix])
+    ner_matrix = np.vstack([UNKNOWN_ARRAY_NER, ner_matrix])
+
+    return lookup_indexes, lookup_matrix, ner_matrix

@@ -31,6 +31,7 @@ from ebrec.utils._python import (
     create_lookup_dict_,
     print_dict_summary,
     create_lookup_objects,
+    create_lookup_objects_,
     generate_unique_name,
 )
 from torch.utils.data import Dataset
@@ -183,7 +184,6 @@ class NewsDataset(Dataset):
             .collect()
         )
 
-
         article_dict = create_lookup_dict(
             self.articles.select(DEFAULT_ARTICLE_ID_COL, # KEY
                                  DEFAULT_TOKENS_COL,     # VALUE_1
@@ -192,23 +192,21 @@ class NewsDataset(Dataset):
             DEFAULT_TOKENS_COL,
             DEFAULT_NER_COL,
         )
-
-        article_dict_ = create_lookup_dict_(
+        article_dict = create_lookup_dict_(
             self.articles.select(DEFAULT_ARTICLE_ID_COL, # KEY
-                                 DEFAULT_TOKENS_COL),       # VALUE_2
+                                 DEFAULT_TOKENS_COL,     # VALUE_1
+                                 ),       # VALUE_2
             DEFAULT_ARTICLE_ID_COL,
             DEFAULT_TOKENS_COL,
         )
-
-        print_dict_summary("article_dict", article_dict)
-        print_dict_summary("article_dict_", article_dict_)
-        sys.exit()
         
-        self.lookup_indexes, self.lookup_matrix = create_lookup_objects(
+        # self.lookup_indexes, self.lookup_matrix, self_ner_matrix = create_lookup_objects(
+        #     article_dict, unknown_representation="zeros"
+        # )
+        self.lookup_indexes, self.lookup_matrix = create_lookup_objects_(
             article_dict, unknown_representation="zeros"
         )
 
-        # self.lookup_indexes = {i: val.item() for i, val in self.lookup_indexes.items()}
         self.data = self.data.pipe(
             map_list_article_id_to_value,
             behaviors_column=DEFAULT_HISTORY_ARTICLE_ID_COL,
@@ -221,7 +219,62 @@ class NewsDataset(Dataset):
             fill_nulls=[0],
         )
 
+        print("self.data" ,self.data)
+        '''
+        ┌─────────┬─────────────────────┬───────────────┬─────────────┬───────────┬────────────────────────────┬────────────────────────────┐
+        │ user_id ┆ article_ids_clicked ┆ impression_id ┆ labels      ┆ n_samples ┆ article_id_fixed           ┆ article_ids_inview         │
+        │ ---     ┆ ---                 ┆ ---           ┆ ---         ┆ ---       ┆ ---                        ┆ ---                        │
+        │ u32     ┆ list[i32]           ┆ u32           ┆ list[i8]    ┆ u32       ┆ list[list[i64]]            ┆ list[list[i64]]            │
+        ╞═════════╪═════════════════════╪═══════════════╪═════════════╪═══════════╪════════════════════════════╪════════════════════════════╡
+        │ 22779   ┆ [9759966]           ┆ 48401         ┆ [0, 0, … 1] ┆ 11        ┆ [[9199], [9110], … [9330]] ┆ [[9620], [9719], … [8515]] │
+        │ 150224  ┆ [9778661]           ┆ 152513        ┆ [0, 0, … 0] ┆ 17        ┆ [[9101], [9135], … [6139]] ┆ [[3193], [5501], … [2799]] │
+        │ 160892  ┆ [9777856]           ┆ 155390        ┆ [0, 0, … 0] ┆ 11        ┆ [[8463], [9008], … [9301]] ┆ [[9988], [9884], … [9996]] │
+        │ 1001055 ┆ [9776566]           ┆ 214679        ┆ [0, 0, … 1] ┆ 9         ┆ [[9082], [9069], … [9285]] ┆ [[9862], [9807], … [9853]] │
+        │ 1001055 ┆ [9776553]           ┆ 214681        ┆ [0, 0, … 0] ┆ 18        ┆ [[9082], [9069], … [9285]] ┆ [[9707], [9807], … [9843]] │
+        │ …       ┆ …                   ┆ …             ┆ …           ┆ …         ┆ …                          ┆ …                          │
+        │ 2053999 ┆ [9775562]           ┆ 579983230     ┆ [0, 0, … 0] ┆ 19        ┆ [[8815], [8788], … [9303]] ┆ [[9664], [9107], … [2457]] │
+        │ 2053999 ┆ [9775361]           ┆ 579983231     ┆ [1, 0, … 0] ┆ 37        ┆ [[8815], [8788], … [9303]] ┆ [[9718], [9738], … [9723]] │
+        │ 2060487 ┆ [9775699]           ┆ 579984721     ┆ [0, 0, … 0] ┆ 5         ┆ [[9247], [9247], … [9261]] ┆ [[9747], [9758], … [9714]] │
+        │ 2060487 ┆ [9758424]           ┆ 579984723     ┆ [0, 0, … 0] ┆ 20        ┆ [[9247], [9247], … [9261]] ┆ [[9694], [9746], … [9727]] │
+        │ 2096611 ┆ [9770369]           ┆ 580097289     ┆ [0, 1, … 0] ┆ 6         ┆ [[788], [8699], … [9131]]  ┆ [[4614], [9313], … [7179]] │
+        └─────────┴─────────────────────┴───────────────┴─────────────┴───────────┴────────────────────────────┴────────────────────────────┘
+        '''
+        print(self.data.explode('article_id_fixed')[0])
         self.data = PolarsDataFrameWrapper(self.data)
+       
+        sys.exit()
+
+    def create_category_labels(self):       
+
+        unique_categories = self.df_articles.select("category_str").unique().to_series().to_list()
+        len_categories = len(unique_categories)
+
+        # Do one-hot encoding dictionary for the categories
+        cat_names_dic = {cat_name: [0]*len_categories for cat_name in unique_categories}
+        for i, cat_name in enumerate(unique_categories):
+            cat_names_dic[cat_name][i] = 1
+
+        def map_category_to_vector(category_str):
+            return cat_names_dic[category_str]
+
+        self.df_articles = self.df_articles.with_columns(
+                pl.col('category_str').apply(map_category_to_vector).alias('category_vector')
+        )
+
+        article_id_to_vector = {row[0]: row[1] for row in zip(self.df_articles['article_id'], self.df_articles['category_vector'])}
+
+        def generate_labels(self, column_name):
+            labels = []
+            for list_articles_ids in self.df_behaviors[column_name]:
+                vectors = []
+                for id in list_articles_ids:
+                    vectors.append(article_id_to_vector.get(id, [0] * len_categories))
+                labels.append(vectors)
+            return np.array(labels)
+
+        self.cat_labels_bh_inview = generate_labels('article_ids_inview')
+        self.cat_labels_bh_fixed = generate_labels('article_id_fixed')
+
 
     def __len__(self):
         return len(self.behaviors)
@@ -246,12 +299,19 @@ class NewsDataset(Dataset):
         candidate_input = self.lookup_matrix[
             batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()
         ]
+
+        # =>
+        # ner_input = candidate_input = self.ner_matrix[
+        #     batch[DEFAULT_NER_COL].to_list()
+        # ]
+        
+        # print(ner_input)
+        # sys.exit()
         # =>
         labels_item = np.array(batch[DEFAULT_LABELS_COL][0])
         idx = np.argsort(labels_item)
         pos_idx_start = list(labels_item[idx]).index(1)
         pos_idxs = np.random.choice(idx[pos_idx_start:], size=(1,), replace=False)
-
         population = idx[:pos_idx_start]
         population_size = len(population)
         sample_size = self.max_labels - 1
@@ -446,7 +506,7 @@ def load_data(
 def map_list_article_id_to_value(
     behaviors: pl.DataFrame,
     behaviors_column: str,
-    mapping: dict[int, pl.Series],
+    mapping: "dict[int, pl.Series]",
     drop_nulls: bool = False,
     fill_nulls: any = None,
 ) -> pl.DataFrame:

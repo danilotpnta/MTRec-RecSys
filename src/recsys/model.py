@@ -80,6 +80,8 @@ class UserEncoder(nn.Module):
         att_weight = F.softmax(att, dim=1)
         user_embedding = torch.sum(history * att_weight, dim=1)
         return user_embedding
+    
+
 
 class MTRec(nn.Module):
     """The main prediction model for the multi-task recommendation system, as described in the paper by ..."""
