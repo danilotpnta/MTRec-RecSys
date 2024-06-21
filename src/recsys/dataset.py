@@ -519,14 +519,13 @@ class NewsDatasetV2(TorchDataset):
             for key in self.lookup_matrix.features.keys()
         }
 
+        _cand = batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()
         # Early return for test mode
         # ========================
         # Construct the candidate vectors
-        _cand = list(
-            self.lookup_matrix[_] for _ in batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()
-        )
         if self.test_mode:
             # Special treatment, as they are not guaranteed to be of the same length
+            _cand = [self.lookup_matrix[_] for _ in _cand]
             candidates = {
                 key: [val[key] for val in _cand]
                 for key in self.lookup_matrix.features.keys()
@@ -534,11 +533,14 @@ class NewsDatasetV2(TorchDataset):
             return histories, candidates
         # ========================
 
-        labels = batch[DEFAULT_LABELS_COL].to_list()
-        candidates = {
-            key: torch.cat([val[key] for val in _cand])
-            for key in self.lookup_matrix.features.keys()
-        }
+        # Use [0] as in most cases the dataloader only calls for a single item. Not pretty at all, but whatever.
+        labels = batch[DEFAULT_LABELS_COL].to_list()[0]
+        idxs = sampling_strategy(labels, self.max_labels)
+        _cand = batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()[0]
+        _cand = [_cand[i] for i in idxs]
+        labels = [labels[i] for i in idxs]
+
+        candidates = self.lookup_matrix[_cand]
         y = torch.tensor(labels).float().squeeze()
         # # ========================
         return histories, candidates, y
@@ -787,6 +789,17 @@ def collate_fn(batch):
         for k in candidates[0].keys()
     }
     return histories, candidates, torch.stack(y)
+
+
+def sampling_strategy(labels, num_choices):
+    labels = np.array(labels)
+    idxs = np.argsort(labels)
+    pos_idx_start = np.where(labels == 1)[0].item()
+    pos_idxs = batch_random_choice_with_reset(idxs[pos_idx_start:], 1)
+    neg_idxs = batch_random_choice_with_reset(idxs[:pos_idx_start], num_choices - 1)
+    idxs = np.concatenate((neg_idxs, pos_idxs))
+    shuffle(idxs)
+    return idxs
 
 
 def batch_random_choice_with_reset(population, num_choices):

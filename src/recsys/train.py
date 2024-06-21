@@ -4,6 +4,7 @@ import pickle
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.profilers import AdvancedProfiler
 from recsys.dataset import NewsDataModule
 from recsys.model import BERTMultitaskRecommender, MultitaskRecommender
 from ebrec.utils._python import write_submission_file
@@ -56,6 +57,7 @@ def main():
     )
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
+    profiler = AdvancedProfiler('profiler_results.txt')
     trainer = Trainer(
         max_epochs=args.epochs,
         num_sanity_val_steps=1,
@@ -63,7 +65,7 @@ def main():
         check_val_every_n_epoch=args.check_val_every_n_epoch,
         precision="bf16-mixed",
         log_every_n_steps=1,
-        profiler="advanced",
+        profiler=profiler,
         callbacks=[lr_monitor],
         logger=TensorBoardLogger("lightning_logs", name="bert_recommender"),
     )
