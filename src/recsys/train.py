@@ -1,13 +1,12 @@
 import argparse
+import pickle
 
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.loggers import TensorBoardLogger
 from recsys.dataset import NewsDataModule
-from recsys.model import BERTMultitaskRecommender
-
-from src.recsys.model import MultitaskRecommender
-
+from recsys.model import BERTMultitaskRecommender, MultitaskRecommender
+from ebrec.utils._python import write_submission_file
 
 def arg_list():
     parser = argparse.ArgumentParser(description="Training arguments")
@@ -34,6 +33,7 @@ def arg_list():
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--use_gradient_surgery", action="store_true")
     parser.add_argument("--max_length", type=int, default=64)
+    parser.add_argument("--use_precomputed_embeddings", action="store_true")
     return parser.parse_args()
 
 
@@ -51,10 +51,11 @@ def main():
         embeddings=args.embeddings_type,
         num_workers=args.num_workers,
         max_length=args.max_length,
-        padding_value=0
+        padding_value=0,
+        dataset_type="v1" if args.use_precomputed_embeddings else "v2",
     )
-    
-    lr_monitor = LearningRateMonitor(logging_interval='step')
+
+    lr_monitor = LearningRateMonitor(logging_interval="step")
     trainer = Trainer(
         max_epochs=args.epochs,
         num_sanity_val_steps=1,
@@ -67,26 +68,50 @@ def main():
         logger=TensorBoardLogger("lightning_logs", name="bert_recommender"),
     )
 
-    if args.load_from_checkpoint:
-        model = BERTMultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
-    else:
-        datamodule.prepare_data()
-        datamodule.setup()
-        model = BERTMultitaskRecommender(epochs=args.epochs, lr=args.lr, wd=args.wd, batch_size=args.bs, steps_per_epoch=datamodule.train_dataset.__len__() // args.bs)
+    datamodule.prepare_data()
+    datamodule.setup()
 
-        # model = MultitaskRecommender(
-        #     args.hidden_dim,
-        #     nhead=args.nhead,
-        #     num_layers=args.num_layers,
-        #     n_categories=datamodule.train_dataset.max_categories,
-        #     lr=args.lr,
-        #     wd=args.wd,
-        #     use_gradient_surgery=args.use_gradient_surgery,
-        # )
+    if not args.use_precomputed_embeddings:
+        if args.load_from_checkpoint:
+            model = BERTMultitaskRecommender.load_from_checkpoint(
+                args.load_from_checkpoint
+            )
+        else:
+            model = BERTMultitaskRecommender(
+                epochs=args.epochs,
+                lr=args.lr,
+                wd=args.wd,
+                batch_size=args.bs,
+                steps_per_epoch=datamodule.train_dataset.__len__() // args.bs,
+                use_gradient_surgery=args.use_gradient_surgery,
+            )
+    else:
+        if args.load_from_checkpoint:
+            model = MultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
+        else:
+            model = MultitaskRecommender(
+                args.hidden_dim,
+                nhead=args.nhead,
+                num_layers=args.num_layers,
+                n_categories=datamodule.train_dataset.max_categories,
+                lr=args.lr,
+                wd=args.wd,
+                use_gradient_surgery=args.use_gradient_surgery,
+                batch_size=args.bs,
+                steps_per_epoch=datamodule.train_dataset.__len__() // args.bs,
+            )
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume_from_checkpoint)
 
     # Make predictions on the test set
-    # preds = trainer.test(model, datamodule=datamodule)
+    res = trainer.test(model, datamodule=datamodule)
+    
+    # Failsafe in case something goes majorly wrong
+    with open("saved_res.txt", "wb") as f:
+        pickle.dump(res, f)
+    
+    scores, preds = zip(*res)
+    
+    write_submission_file(datamodule.test_dataset, list(preds), rm_file=False)
     # print(preds)
 
 
