@@ -419,7 +419,7 @@ class MultitaskRecommender(BERTMultitaskRecommender):
             "labels": labels,
         }
 
-
+'''
 def apply_softmax_crossentropy(logits, one_hot_targets, epsilon=1e-10):
     """
     Applies softmax and computes the cross-entropy loss for each segment of logits with one-hot encoded targets.
@@ -466,9 +466,7 @@ def apply_softmax_crossentropy(logits, one_hot_targets, epsilon=1e-10):
     segment_losses = masked_losses.sum(dim=-1) / mask.sum(dim=-1)
 
     return segment_losses
-
-
-
+'''
 
 class BERTMultitaskRecommenderOG(LightningModule):
     """
@@ -504,7 +502,7 @@ class BERTMultitaskRecommenderOG(LightningModule):
         #self.indx = 0
         from torchmetrics import Accuracy
 
-        self.accuracy = Accuracy(task="multiclass", num_labels=5)
+        self.accuracy = Accuracy(task="multiclass", num_classes=5)
 
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
