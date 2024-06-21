@@ -66,9 +66,16 @@ def main():
     if args.load_from_checkpoint:
         model = BERTMultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
     else:
-        model = BERTMultitaskRecommender(epochs=args.epochs, lr=args.lr, wd=args.wd, batch_size=args.bs)
         datamodule.prepare_data()
         datamodule.setup()
+        model = BERTMultitaskRecommender(
+            epochs=args.epochs, 
+            lr=args.lr, 
+            d=args.wd, 
+            batch_size=args.bs, 
+            steps_per_epoch=datamodule.train_dataset.__len__() // args.bs,
+        )
+        
 
         # model = MultitaskRecommender(
         #     args.hidden_dim,
