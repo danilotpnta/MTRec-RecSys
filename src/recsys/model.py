@@ -10,7 +10,7 @@ from ebrec.evaluation.metrics_protocols import (
     RootMeanSquaredError,
 )
 from transformers import AutoTokenizer, BertModel
-
+from torchmetrics import Accuracy, AUCROC
 from pytorch_lightning import LightningModule
 from recsys.utils.gradient_surgery import PCGrad
 from torch import nn
@@ -347,19 +347,18 @@ class BERTMultitaskRecommender(LightningModule):
             self.labels,
             self.predictions,
             metric_functions=[
-                AucScore(),
+                #AucScore(),
                 MrrScore(),
                 NdcgScore(k=10),
                 NdcgScore(k=5),
                 LogLossScore(),
-                RootMeanSquaredError(),
-                F1Score(),
+                #RootMeanSquaredError(),
+                #F1Score(),
             ],
         )
         
-        from torchmetrics import Accuracy
         self.accuracy = Accuracy(task="multiclass", num_classes=5)
-        
+        self.auc_roc = AUCROC(task="multiclass", num_classes=5)
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         # Would be good if we can find a rationale for this in the literature.
@@ -459,9 +458,12 @@ class BERTMultitaskRecommender(LightningModule):
         scores = self(history, candidates)
 
         loss = self.criterion(scores, labels)
-        
-        accuracy = self.accuracy(scores.float(), labels.argmax(dim=-1))
-        self.log("val_accuracy", accuracy, prog_bar=True) 
+        labels_indices = labels.argmax(dim=-1)
+
+        accuracy = self.accuracy(scores, labels_indices)
+        auc_roc = self.auc_roc(scores, labels_indices)
+        self.log("validation/accuracy", accuracy)
+        self.log("validation/auc_roc", auc_roc)
         self.log("val_loss", loss.float().item(), prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())
