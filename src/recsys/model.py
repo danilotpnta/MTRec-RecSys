@@ -386,7 +386,7 @@ class BERTMultitaskRecommender(LightningModule):
             self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
         )
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer, max_lr=self.lr, pct_start=0.1, steps_per_epoch=self.hparams.steps_per_epoch, epochs=self.hparams.epochs, anneal_strategy='linear'
+            optimizer, max_lr=self.hparams.lr, pct_start=0.1, steps_per_epoch=self.hparams.steps_per_epoch, epochs=self.hparams.epochs, anneal_strategy='linear'
         )
         
         return {
