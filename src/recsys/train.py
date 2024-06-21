@@ -1,11 +1,12 @@
 import argparse
+import pickle
 
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.loggers import TensorBoardLogger
 from recsys.dataset import NewsDataModule
 from recsys.model import BERTMultitaskRecommender, MultitaskRecommender
-
+from ebrec.utils._python import write_submission_file
 
 def arg_list():
     parser = argparse.ArgumentParser(description="Training arguments")
@@ -102,7 +103,15 @@ def main():
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume_from_checkpoint)
 
     # Make predictions on the test set
-    # preds = trainer.test(model, datamodule=datamodule)
+    res = trainer.test(model, datamodule=datamodule)
+    
+    # Failsafe in case something goes majorly wrong
+    with open("saved_res.txt", "wb") as f:
+        pickle.dump(res, f)
+    
+    scores, preds = zip(*res)
+    
+    write_submission_file(datamodule.test_dataset, list(preds), rm_file=False)
     # print(preds)
 
 

@@ -285,13 +285,13 @@ class BERTMultitaskRecommender(LightningModule):
         self.log_dict({f"validation/{k}": v for k, v in metrics.evaluations.items()})
 
     def test_step(self, batch, batch_idx):
-        return self.validation_step(batch, batch_idx)
-        history, candidates, category, _ = batch
         res = []
-        for inview in candidates:
-            scores = self(history, inview.unsqueeze(0))
-            indices = torch.argsort(scores, descending=True)
-            res.append(indices.tolist())
+        
+        histories, candidates = batch
+        for hist, cand in zip(histories, candidates):
+            scores = self(hist, cand)
+            indices = torch.argsort(scores, descending=True) + 1
+            res.append((scores.tolist(), indices.tolist()))
 
         return res
 
