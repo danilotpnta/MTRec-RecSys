@@ -12,6 +12,7 @@
             "args": [
                 "--data",
                 "data",
+                "--use_precomputed_embeddings"
             ]
         }
     ]

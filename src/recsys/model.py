@@ -132,7 +132,7 @@ class BERTMultitaskRecommender(LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
-            self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.wd
+            filter(lambda x: x.requires_grad, self.parameters()), lr=self.hparams.lr, weight_decay=self.hparams.wd
         )
 
         if self.hparams.use_gradient_surgery:
@@ -309,6 +309,7 @@ class MultitaskRecommender(BERTMultitaskRecommender):
     def __init__(
         self,
         hidden_dim,
+        embeddings,
         nhead=8,
         num_layers=2,
         n_categories=5,
@@ -327,6 +328,7 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         # )
         # self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
 
+        self.embedding = nn.Embedding.from_pretrained(embeddings, padding_idx=0)
         self.user_encoder = UserEncoder(hidden_dim)
         self.category_encoder = CategoryEncoder(hidden_dim, n_categories=n_categories)
 
@@ -350,8 +352,10 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         # user_embedding = self.transformer(history)
         # user_embedding = torch.sum(history * user_embedding.softmax(dim=1), dim=1)
         # user_embedding = (user_embedding.softmax(dim=1) * user_embedding).sum(dim=1)
+        history = self.embedding(history)
         user_embedding = self.user_encoder(history)
 
+        candidates = self.embedding(candidates)
         # Normalization in order to reduce the variance of the dot product
         scores = torch.bmm(
             F.normalize(candidates, dim=-1),

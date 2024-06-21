@@ -100,6 +100,7 @@ def main():
                 wd=args.wd,
                 use_gradient_surgery=args.use_gradient_surgery,
                 batch_size=args.bs,
+                embeddings=datamodule.train_dataset.lookup_matrix,
                 steps_per_epoch=datamodule.train_dataset.__len__() // args.bs,
             )
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume_from_checkpoint)

@@ -270,28 +270,26 @@ class NewsDataset(TorchDataset):
         batch = self.data[index]
 
         # Construct the history vectors
-        histories = self.lookup_matrix[batch[DEFAULT_HISTORY_ARTICLE_ID_COL].to_list()]
+        histories = torch.from_numpy(batch[DEFAULT_HISTORY_ARTICLE_ID_COL].to_numpy(writable=True)[0])
 
         # Early return for test mode
         # ========================
         # Construct the candidate vectors
         if self.test_mode:
             # Special treatment, as they are not guaranteed to be of the same length
-            candidates = [
-                self.lookup_matrix[_]
-                for _ in batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()
-            ]
+            candidates = torch.from_numpy(batch[DEFAULT_INVIEW_ARTICLES_COL].to_numpy(writable=True)[0])
+
             return histories, candidates
         # ========================
 
         # Use [0] as in most cases the dataloader only calls for a single item. Not pretty at all, but whatever.
-        labels = batch[DEFAULT_LABELS_COL].to_list()[0]
+        labels = batch[DEFAULT_LABELS_COL].to_numpy(writable=True)[0]
         idxs = sampling_strategy(labels, self.max_labels)
-        _cand = batch[DEFAULT_INVIEW_ARTICLES_COL].to_list()[0]
-        _cand = [_cand[i] for i in idxs]
-        labels = [labels[i] for i in idxs]
-        
-        candidates = self.lookup_matrix[_cand]
+        _cand = batch[DEFAULT_INVIEW_ARTICLES_COL].to_numpy(writable=True)[0]
+        _cand = _cand[idxs]
+        labels = labels[idxs]
+
+        candidates = torch.from_numpy(_cand)
         y = torch.tensor(labels).float().squeeze()
         # # ========================
         return histories, candidates, y
