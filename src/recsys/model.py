@@ -79,7 +79,7 @@ class BERTMultitaskRecommender(LightningModule):
         self, epochs=10, lr=1e-3, wd=0.0, steps_per_epoch=None, n_categories=5, **kwargs
     ):
         super().__init__()
-        self.automatic_optimization = kwargs.get("use_gradient_surgery", True)
+        self.automatic_optimization = not kwargs.get("use_gradient_surgery", True)
         print("automatic optimization:", self.automatic_optimization)
         self.save_hyperparameters(ignore="embeddings")
         self.predictions = []
