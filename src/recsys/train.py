@@ -63,7 +63,7 @@ def main():
         num_sanity_val_steps=1,
         # gradient_clip_val=0.3,
         check_val_every_n_epoch=args.check_val_every_n_epoch,
-        precision="bf16-mixed",
+        precision="16",
         log_every_n_steps=1,
         profiler=profiler,
         callbacks=[lr_monitor],
