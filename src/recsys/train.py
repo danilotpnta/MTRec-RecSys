@@ -9,6 +9,7 @@ from recsys.dataset import NewsDataModule
 from recsys.model import BERTMultitaskRecommender, MultitaskRecommender
 from ebrec.utils._python import write_submission_file
 
+
 def arg_list():
     parser = argparse.ArgumentParser(description="Training arguments")
     parser.add_argument("--hidden_dim", type=int, default=768)
@@ -35,6 +36,7 @@ def arg_list():
     parser.add_argument("--use_gradient_surgery", action="store_true")
     parser.add_argument("--max_length", type=int, default=64)
     parser.add_argument("--use_precomputed_embeddings", action="store_true")
+    parser.add_argument("--precision", type=str, default='bf16-mixed', help="Choose from 'bf16', 'bf16-mixed', '32', '16', or '16-mixed")
     return parser.parse_args()
 
 
@@ -57,13 +59,13 @@ def main():
     )
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
-    profiler = AdvancedProfiler(filename='profiler_results.txt')
+    profiler = AdvancedProfiler(filename="profiler_results.txt")
     trainer = Trainer(
         max_epochs=args.epochs,
         num_sanity_val_steps=1,
         # gradient_clip_val=0.3,
         check_val_every_n_epoch=args.check_val_every_n_epoch,
-        precision="bf16-mixed",
+        precision=args.precision,
         log_every_n_steps=1,
         profiler=profiler,
         callbacks=[lr_monitor],
