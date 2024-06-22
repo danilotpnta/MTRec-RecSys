@@ -25,16 +25,17 @@ dependencies = [
     "tqdm",
     "json-tricks>=3.15.5",
     # New dependencies from the YAML file:
-    "pandas",  
-    "umap-learn",  
-    "wget", 
-    "plotly==5.20.0",  
-    "pyvi==0.1.1", 
-    "torchmetrics==1.1.2",  
-    "requests", 
-    "sentencepiece", # for XLMRobertaTokenizer
+    "pandas",
+    "umap-learn",
+    "wget",
+    "plotly==5.20.0",
+    "pyvi==0.1.1",
+    "torchmetrics==1.1.2",
+    "requests",
+    "sentencepiece",       # for XLMRobertaTokenizer
     "lightning",
-    "datasets"
+    "datasets",
+    "peft",
 ]
 
 [project.optional-dependencies]
