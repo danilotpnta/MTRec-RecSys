@@ -67,7 +67,7 @@ def main():
         check_val_every_n_epoch=args.check_val_every_n_epoch,
         precision=args.precision,
         log_every_n_steps=1,
-        profiler=profiler,
+        # profiler=profiler,
         callbacks=[lr_monitor],
         logger=TensorBoardLogger("lightning_logs", name="bert_recommender"),
     )

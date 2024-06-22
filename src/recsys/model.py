@@ -228,7 +228,9 @@ class BERTMultitaskRecommender(LightningModule):
         )
 
         if calculate_category:
-            return scores.squeeze(-1), self.category_encoder(history)
+            return scores.squeeze(-1), self.category_encoder(
+                history.view(batch_size * hist_size, -1)
+            )
         return scores.squeeze(-1)
 
     def compute_loss(self, batch):
@@ -237,14 +239,15 @@ class BERTMultitaskRecommender(LightningModule):
 
         categories = history.pop("category")
         _ = candidates.pop("category")
-        category = F.one_hot(categories, num_classes=self.hparams.n_categories).float()
+        categories = F.one_hot(
+            categories.view(-1,1), num_classes=self.hparams.n_categories
+        ).squeeze().float()
 
         scores, category_scores = self(history, candidates, calculate_category=True)
-        
-        
+
         news_ranking_loss = self.criterion(scores, labels)
         category_loss = F.cross_entropy(
-            category_scores.view(-1, 1), category.view(-1, 1)
+            category_scores.view(-1, self.hparams.n_categories), categories
         )
 
         return {
@@ -261,7 +264,7 @@ class BERTMultitaskRecommender(LightningModule):
         category_loss = loss["category_loss"]
         #
         aux_loss = 0.3 * category_loss
-        loss = news_ranking_loss
+        loss = news_ranking_loss + aux_loss
         # Gradient Surgery
         # ================
         if self.hparams.use_gradient_surgery:
