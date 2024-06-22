@@ -1,6 +1,5 @@
 import torch
 from ebrec.evaluation.metrics_protocols import (
-    AccuracyScore,
     AucScore,
     F1Score,
     LogLossScore,
@@ -10,9 +9,8 @@ from ebrec.evaluation.metrics_protocols import (
     RootMeanSquaredError,
 )
 
-from torchmetrics import Accuracy, AUROC
 from transformers import AutoTokenizer, BertModel
-from sklearn.metrics import roc_auc_score
+from torchmetrics import Accuracy, AUROC
 from pytorch_lightning import LightningModule
 from recsys.utils.gradient_surgery import PCGrad
 from torch import nn
@@ -102,15 +100,15 @@ class BERTMultitaskRecommender(LightningModule):
                 MrrScore(),
                 NdcgScore(k=10),
                 NdcgScore(k=5),
-                #LogLossScore(),
+                LogLossScore(),
                 #RootMeanSquaredError(),
                 #F1Score(),
             ],
         )
-        self.indx = 0
-
-        self.accuracy = Accuracy(task="multilabel", num_labels=5)
+        
+        self.accuracy = Accuracy(task="multiclass", num_classes=5)
         self.auc_roc = AUROC(task="multiclass", num_classes=5)
+        
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         # Would be good if we can find a rationale for this in the literature.
@@ -177,7 +175,6 @@ class BERTMultitaskRecommender(LightningModule):
         # Suggestion: Concatenate both vectors and pass them through a linear layer? (Only if we have time)
         # history = self.transformer(history)
         # user_embedding = self.transformer(history).mean(dim=1)
-        self.indx += 1
         batch_size, hist_size, seq_len = history["input_ids"].size()
         history["input_ids"] = history["input_ids"].view(
             batch_size * hist_size, seq_len
@@ -211,8 +208,6 @@ class BERTMultitaskRecommender(LightningModule):
         )
 
         user_embedding = self.user_encoder(history)
-        if self.indx % 100 == 0:
-            print(candidates)
         # Normalization in order to reduce the variance of the dot product
         scores = torch.bmm(
             candidates, user_embedding.unsqueeze(-1)
@@ -278,12 +273,12 @@ class BERTMultitaskRecommender(LightningModule):
 
         scores = loss["scores"]
         labels = loss["labels"]
-        # labels_indices = labels.argmax(dim=-1)
+        labels_indices = labels.argmax(dim=-1)
 
-        # accuracy = self.accuracy(scores, labels_indices)
-        # auc_roc = self.auc_roc(scores, labels_indices)
-        # self.log("validation/accuracy", accuracy)
-        # self.log("validation/auc_roc", auc_roc)
+        accuracy = self.accuracy(scores, labels_indices)
+        auc_roc = self.auc_roc(scores, labels_indices)
+        self.log("validation/accuracy", accuracy)
+        self.log("validation/auc_roc", auc_roc)
         self.log("validation/loss", loss["news_ranking_loss"], prog_bar=True)
         self.predictions.append(scores.detach().cpu().flatten().float().numpy())
         self.labels.append(labels.detach().cpu().flatten().float().numpy())
