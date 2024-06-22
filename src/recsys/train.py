@@ -107,15 +107,15 @@ def main():
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume_from_checkpoint)
 
     # Make predictions on the test set
-    # res = trainer.test(model, datamodule=datamodule)
+    res = trainer.test(model, datamodule=datamodule)
     
-    # # Failsafe in case something goes majorly wrong
-    # with open("saved_res.txt", "wb") as f:
-    #     pickle.dump(res, f)
+    # Failsafe in case something goes majorly wrong
+    with open("saved_res.txt", "wb") as f:
+        pickle.dump(res, f)
     
-    # scores, preds = zip(*res)
+    scores, preds = zip(*res)
     
-    # write_submission_file(datamodule.test_dataset, list(preds), rm_file=False)
+    write_submission_file(datamodule.test_dataset, list(preds), rm_file=False)
 
 
 if __name__ == "__main__":
