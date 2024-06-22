@@ -263,11 +263,11 @@ class BERTMultitaskRecommender(LightningModule):
         news_ranking_loss = loss["news_ranking_loss"]
 
         loss = news_ranking_loss
-        category_loss = loss["category_loss"]
+        
         # Gradient Surgery
         # ================
         if self.hparams.use_gradient_surgery:
-            
+            category_loss = loss["category_loss"]
             #
             aux_loss = 0.3 * category_loss
             optimizer = self.optimizers()
@@ -275,11 +275,12 @@ class BERTMultitaskRecommender(LightningModule):
 
             optimizer.optimizer.pc_backward([news_ranking_loss, aux_loss])
             optimizer.step()
+            self.log("train/category_loss", category_loss)
         # ================
 
         self.log("train/loss", loss, prog_bar=True)
         self.log("train/news_ranking_loss", news_ranking_loss)
-        self.log("train/category_loss", category_loss)
+        
         return loss
 
     def on_validation_epoch_start(self) -> None:
