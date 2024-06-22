@@ -433,6 +433,11 @@ class NewsDatasetV2(TorchDataset):
             truncation=True,
             padding=True,
         )
+        tokens["input_ids"][0][0] = 0
+        tokens["input_ids"][0][1] = 0 
+
+        tokens["attention_mask"][0][0] = 0
+        tokens["attention_mask"][0][1] = 0
 
         # Create the lookup matrix
         self.lookup_matrix = Dataset.from_dict(tokens).add_column(
