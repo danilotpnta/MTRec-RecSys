@@ -75,7 +75,9 @@ class BERTMultitaskRecommender(LightningModule):
     The main prediction model for the multi-task recommendation system with BERT fine-tuning.
     """
 
-    def __init__(self, epochs=10, lr=1e-3, wd=0.0, steps_per_epoch=None, **kwargs):
+    def __init__(
+        self, epochs=10, lr=1e-3, wd=0.0, steps_per_epoch=None, n_categories=5, **kwargs
+    ):
         super().__init__()
         self.automatic_optimization = kwargs.get("use_gradient_surgery", False)
 
@@ -85,30 +87,37 @@ class BERTMultitaskRecommender(LightningModule):
         self.bert = BertModel.from_pretrained(
             "google-bert/bert-base-multilingual-cased"
         )
-        
+
         from peft import LoraConfig, get_peft_model
-        self.bert = get_peft_model(self.bert, LoraConfig(r=16, lora_alpha=16, use_rslora=True))
-        
+
+        self.bert = get_peft_model(
+            self.bert, LoraConfig(r=16, lora_alpha=16, use_rslora=True)
+        )
+
         # self.head = nn.Linear(self.bert.config.hidden_size, num_classes+3+category_num_cls) # 3 for ner
         self.user_encoder = UserEncoder(self.bert.config.hidden_size)
+
+        self.category_encoder = CategoryEncoder(
+            self.bert.config.hidden_size, n_categories=n_categories
+        )
 
         self.metric_evaluator = MetricEvaluator(
             self.labels,
             self.predictions,
             metric_functions=[
-                #AucScore(),
+                # AucScore(),
                 MrrScore(),
                 NdcgScore(k=10),
                 NdcgScore(k=5),
                 LogLossScore(),
-                #RootMeanSquaredError(),
-                #F1Score(),
+                # RootMeanSquaredError(),
+                # F1Score(),
             ],
         )
-        
+
         self.accuracy = Accuracy(task="multiclass", num_classes=5)
         self.auc_roc = AUROC(task="multiclass", num_classes=5)
-        
+
         # NOTE: Positives are weighted 4 times more than negatives as the dataset is imbalanced.
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         # Would be good if we can find a rationale for this in the literature.
@@ -134,7 +143,9 @@ class BERTMultitaskRecommender(LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
-            filter(lambda x: x.requires_grad, self.parameters()), lr=self.hparams.lr, weight_decay=self.hparams.wd
+            filter(lambda x: x.requires_grad, self.parameters()),
+            lr=self.hparams.lr,
+            weight_decay=self.hparams.wd,
         )
 
         if self.hparams.use_gradient_surgery:
@@ -158,7 +169,7 @@ class BERTMultitaskRecommender(LightningModule):
             },
         }
 
-    def forward(self, history, candidates):
+    def forward(self, history, candidates, calculate_category=False):
         """
         LEGEND:
         B - batch size (keep in mind we use an unusual mini-batch approach)
@@ -210,10 +221,14 @@ class BERTMultitaskRecommender(LightningModule):
         user_embedding = self.user_encoder(history)
         # Normalization in order to reduce the variance of the dot product
         scores = torch.bmm(
-            candidates, user_embedding.unsqueeze(-1)
+            candidates,
+            user_embedding.unsqueeze(-1),
             # F.normalize(candidates, dim=-1),
             # F.normalize(user_embedding.unsqueeze(-1), dim=1),
         )
+
+        if calculate_category:
+            return scores.squeeze(-1), self.category_encoder(history)
         return scores.squeeze(-1)
 
     def compute_loss(self, batch):
@@ -222,16 +237,16 @@ class BERTMultitaskRecommender(LightningModule):
 
         categories = history.pop("category")
         _ = candidates.pop("category")
-        scores = self(history, candidates)
+        category = F.one_hot(categories, num_classes=self.hparams.n_categories).float()
+
+        scores, category_scores = self(history, candidates, calculate_category=True)
+        
+        
         news_ranking_loss = self.criterion(scores, labels)
+        category_loss = F.cross_entropy(
+            category_scores.view(-1, 1), category.view(-1, 1)
+        )
 
-        # category_scores = self.category_encoder(history)
-        # category = torch.nn.functional.one_hot(
-        # category, num_classes=self.hparams.n_categories
-        # ).float()
-        # category_loss = self.category_loss(category_scores, category)
-
-        category_loss = torch.tensor(0.0, device=self.device)
         return {
             "news_ranking_loss": news_ranking_loss,
             "category_loss": category_loss,
@@ -290,7 +305,7 @@ class BERTMultitaskRecommender(LightningModule):
 
     def test_step(self, batch, batch_idx):
         res = []
-        
+
         histories, candidates = batch
         for hist, cand in zip(histories, candidates):
             scores = self(hist, cand)
@@ -325,7 +340,9 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         # )
         # self.transformer = nn.TransformerEncoder(transformer, num_layers=num_layers)
 
-        self.embedding = nn.Embedding.from_pretrained(embeddings, padding_idx=0, freeze=False)
+        self.embedding = nn.Embedding.from_pretrained(
+            embeddings, padding_idx=0, freeze=False
+        )
         self.user_encoder = UserEncoder(hidden_dim)
         self.category_encoder = CategoryEncoder(hidden_dim, n_categories=n_categories)
 
@@ -382,6 +399,7 @@ class MultitaskRecommender(BERTMultitaskRecommender):
             "scores": scores,
             "labels": labels,
         }
+
 
 '''
 def apply_softmax_crossentropy(logits, one_hot_targets, epsilon=1e-10):

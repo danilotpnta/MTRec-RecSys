@@ -88,6 +88,7 @@ def main():
                 batch_size=args.bs,
                 steps_per_epoch=datamodule.train_dataset.__len__() // args.bs,
                 use_gradient_surgery=args.use_gradient_surgery,
+                n_categories=datamodule.train_dataset.max_categories,
             )
     else:
         if args.load_from_checkpoint:
