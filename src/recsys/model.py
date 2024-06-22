@@ -261,13 +261,14 @@ class BERTMultitaskRecommender(LightningModule):
         loss = self.compute_loss(batch)
 
         news_ranking_loss = loss["news_ranking_loss"]
-        category_loss = loss["category_loss"]
-        #
-        aux_loss = 0.3 * category_loss
-        loss = news_ranking_loss + aux_loss
+
+        loss = news_ranking_loss
         # Gradient Surgery
         # ================
         if self.hparams.use_gradient_surgery:
+            category_loss = loss["category_loss"]
+            #
+            aux_loss = 0.3 * category_loss
             optimizer = self.optimizers()
             optimizer.zero_grad()
 
