@@ -88,11 +88,11 @@ class BERTMultitaskRecommender(LightningModule):
             "google-bert/bert-base-multilingual-cased"
         )
 
-        from peft import LoraConfig, get_peft_model
+        #from peft import LoraConfig, get_peft_model
 
-        self.bert = get_peft_model(
-            self.bert, LoraConfig(r=16, lora_alpha=16, use_rslora=True)
-        )
+        #self.bert = get_peft_model(
+        #    self.bert, LoraConfig(r=16, lora_alpha=16, use_rslora=True)
+        #)
 
         # self.head = nn.Linear(self.bert.config.hidden_size, num_classes+3+category_num_cls) # 3 for ner
         self.user_encoder = UserEncoder(self.bert.config.hidden_size)
