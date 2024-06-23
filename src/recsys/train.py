@@ -63,9 +63,9 @@ def main():
     profiler = AdvancedProfiler(filename="profiler_results.txt")
     checkpoint_callback = ModelCheckpoint(
         dirpath="checkpoints",
-        filename="{epoch:02d}-{step:02d}-{val_loss:.2f}",
-        save_top_k=2,
-        every_n_train_steps=1000,
+        filename="{epoch:02d}-{step:02d}",
+        save_top_k=-1,
+        every_n_train_steps=2000,
         save_weights_only=False,
     )
     trainer = Trainer(
