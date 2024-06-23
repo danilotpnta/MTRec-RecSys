@@ -78,6 +78,7 @@ def main():
         # profiler=profiler,
         callbacks=[lr_monitor, checkpoint_callback],
         logger=TensorBoardLogger("lightning_logs", name="bert_recommender"),
+        strategy='ddp_find_unused_parameters_true'
     )
 
     datamodule.prepare_data()
