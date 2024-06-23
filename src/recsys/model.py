@@ -79,7 +79,7 @@ class BERTMultitaskRecommender(LightningModule):
         self, epochs=10, lr=1e-3, wd=0.0, steps_per_epoch=None, n_categories=5, **kwargs
     ):
         super().__init__()
-        self.automatic_optimization = not kwargs.get("use_gradient_surgery", True)
+        self.automatic_optimization = not kwargs.get("use_gradient_surgery", False) # surgery must be explicit
         print("automatic optimization:", self.automatic_optimization)
         self.save_hyperparameters(ignore="embeddings")
         self.predictions = []
@@ -88,11 +88,12 @@ class BERTMultitaskRecommender(LightningModule):
             "google-bert/bert-base-multilingual-cased"
         )
 
-        #from peft import LoraConfig, get_peft_model
+        if kwargs.get("use_lora"):
+            from peft import LoraConfig, get_peft_model
 
-        #self.bert = get_peft_model(
-        #    self.bert, LoraConfig(r=16, lora_alpha=16, use_rslora=True)
-        #)
+            self.bert = get_peft_model(
+                self.bert, LoraConfig(r=16, lora_alpha=16, use_rslora=True)
+            )
 
         # self.head = nn.Linear(self.bert.config.hidden_size, num_classes+3+category_num_cls) # 3 for ner
         self.user_encoder = UserEncoder(self.bert.config.hidden_size)
@@ -148,7 +149,7 @@ class BERTMultitaskRecommender(LightningModule):
             weight_decay=self.hparams.wd,
         )
 
-        if self.hparams.use_gradient_surgery:
+        if not self.automatic_optimization:
             optimizer = PCGrad(optimizer)
 
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
@@ -239,9 +240,11 @@ class BERTMultitaskRecommender(LightningModule):
 
         categories = history.pop("category")
         _ = candidates.pop("category")
-        categories = F.one_hot(
-            categories.view(-1,1), num_classes=self.hparams.n_categories
-        ).squeeze().float()
+        categories = (
+            F.one_hot(categories.view(-1, 1), num_classes=self.hparams.n_categories)
+            .squeeze()
+            .float()
+        )
 
         scores, category_scores = self(history, candidates, calculate_category=True)
 
@@ -263,10 +266,12 @@ class BERTMultitaskRecommender(LightningModule):
         news_ranking_loss = loss["news_ranking_loss"]
 
         loss = news_ranking_loss
-        
+
+        # NOTE: Above, news_ranking_loss should be summed with category_loss. This is NOT adhering to the original paper.
+
         # Gradient Surgery
         # ================
-        if self.hparams.use_gradient_surgery:
+        if not self.automatic_optimization:
             category_loss = loss["category_loss"]
             #
             aux_loss = 0.3 * category_loss
@@ -275,12 +280,15 @@ class BERTMultitaskRecommender(LightningModule):
 
             optimizer.optimizer.pc_backward([news_ranking_loss, aux_loss])
             optimizer.step()
+
+            scheduler = self.lr_schedulers()
+            scheduler.step()
             self.log("train/category_loss", category_loss)
         # ================
 
         self.log("train/loss", loss, prog_bar=True)
         self.log("train/news_ranking_loss", news_ranking_loss)
-        
+
         return loss
 
     def on_validation_epoch_start(self) -> None:

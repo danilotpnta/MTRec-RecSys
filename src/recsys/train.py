@@ -2,7 +2,7 @@ import argparse
 import pickle
 
 from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import LearningRateMonitor
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.profilers import AdvancedProfiler
 from recsys.dataset import NewsDataModule
@@ -37,6 +37,7 @@ def arg_list():
     parser.add_argument("--max_length", type=int, default=64)
     parser.add_argument("--use_precomputed_embeddings", action="store_true")
     parser.add_argument("--precision", type=str, default='bf16-mixed', help="Choose from 'bf16', 'bf16-mixed', '32', '16', or '16-mixed")
+    parser.add_argument("--use_lora", action="store_true")
     return parser.parse_args()
 
 
@@ -60,6 +61,13 @@ def main():
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
     profiler = AdvancedProfiler(filename="profiler_results.txt")
+    checkpoint_callback = ModelCheckpoint(
+        dirpath="checkpoints",
+        filename="{epoch:02d}-{step:02d}-{val_loss:.2f}",
+        save_top_k=2,
+        every_n_train_steps=1000,
+        save_weights_only=False,
+    )
     trainer = Trainer(
         max_epochs=args.epochs,
         num_sanity_val_steps=1,
@@ -68,7 +76,7 @@ def main():
         precision=args.precision,
         log_every_n_steps=1,
         # profiler=profiler,
-        callbacks=[lr_monitor],
+        callbacks=[lr_monitor, checkpoint_callback],
         logger=TensorBoardLogger("lightning_logs", name="bert_recommender"),
     )
 
@@ -89,6 +97,7 @@ def main():
                 steps_per_epoch=datamodule.train_dataset.__len__() // args.bs,
                 use_gradient_surgery=args.use_gradient_surgery,
                 n_categories=datamodule.train_dataset.max_categories,
+                use_lora=args.use_lora,
             )
     else:
         if args.load_from_checkpoint:
