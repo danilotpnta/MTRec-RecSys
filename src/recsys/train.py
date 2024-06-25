@@ -36,7 +36,12 @@ def arg_list():
     parser.add_argument("--use_gradient_surgery", action="store_true")
     parser.add_argument("--max_length", type=int, default=64)
     parser.add_argument("--use_precomputed_embeddings", action="store_true")
-    parser.add_argument("--precision", type=str, default='bf16-mixed', help="Choose from 'bf16', 'bf16-mixed', '32', '16', or '16-mixed")
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default="bf16-mixed",
+        choices=("bf16", "bf16-mixed", "32", "16", "16-mixed"),
+    )
     parser.add_argument("--use_lora", action="store_true")
     return parser.parse_args()
 
@@ -78,7 +83,7 @@ def main():
         # profiler=profiler,
         callbacks=[lr_monitor, checkpoint_callback],
         logger=TensorBoardLogger("lightning_logs", name="bert_recommender"),
-        strategy='ddp_find_unused_parameters_true'
+        # strategy="ddp_find_unused_parameters_true",
     )
 
     datamodule.prepare_data()
@@ -98,6 +103,7 @@ def main():
                 steps_per_epoch=datamodule.train_dataset.__len__() // args.bs,
                 use_gradient_surgery=args.use_gradient_surgery,
                 n_categories=datamodule.train_dataset.max_categories,
+                sentiment_labels=datamodule.train_dataset.max_sentiment_labels,
                 use_lora=args.use_lora,
             )
     else:
@@ -121,13 +127,13 @@ def main():
 
     # Make predictions on the test set
     res = trainer.test(model, datamodule=datamodule)
-    
+
     # Failsafe in case something goes majorly wrong
     with open("saved_res.txt", "wb") as f:
         pickle.dump(res, f)
-    
+
     scores, preds = zip(*res)
-    
+
     write_submission_file(datamodule.test_dataset, list(preds), rm_file=False)
 
 
