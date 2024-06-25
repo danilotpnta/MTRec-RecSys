@@ -22,6 +22,7 @@ from ebrec.utils._constants import (
     DEFAULT_TITLE_COL,
     DEFAULT_TOPICS_COL,
     DEFAULT_USER_COL,
+    DEFAULT_SENTIMENT_LABEL_COL,
 )
 from ebrec.utils._polars import slice_join_dataframes
 from ebrec.utils._python import (
@@ -167,9 +168,15 @@ class NewsDataset(TorchDataset):
             self.articles.lazy()
             .with_columns(
                 pl.col(DEFAULT_CATEGORY_STR_COL)
-                .cast(pl.Categorical)
+                .cast(pl.Categorical("lexical"))
                 .to_physical()
-                .alias(DEFAULT_CATEGORY_COL)
+                .cast(pl.UInt8)
+                .alias(DEFAULT_CATEGORY_COL),
+                pl.col(DEFAULT_SENTIMENT_LABEL_COL)
+                .cast(pl.Categorical("lexical"))
+                .to_physical()
+                .cast(pl.UInt8)
+                .alias(DEFAULT_SENTIMENT_LABEL_COL),
             )
             .collect()
         )
@@ -337,6 +344,7 @@ class NewsDatasetV2(TorchDataset):
                 DEFAULT_SUBTITLE_COL,  # subtitle
                 DEFAULT_TOPICS_COL,  # topics
                 DEFAULT_CATEGORY_STR_COL,  # category_str
+                DEFAULT_SENTIMENT_LABEL_COL,  # sentiment_label
             ]
         ).collect()
 
@@ -357,6 +365,7 @@ class NewsDatasetV2(TorchDataset):
             "padding_value": self.padding_value,
             "max_labels": self.max_labels,
             "max_categories": self.max_categories,
+            "max_sentiment_labels": self.max_sentiment_labels,
             "test_mode": self.test_mode,
         }
 
@@ -368,16 +377,17 @@ class NewsDatasetV2(TorchDataset):
         self.articles.write_parquet(path + "/articles.parquet")
         self.data.dataframe.write_parquet(path + "/data.parquet")
 
-    @staticmethod
-    def from_preprocessed(path: str):
+    @classmethod
+    def from_preprocessed(cls, path: str):
         """Load the preprocessed data from the given path directory."""
-        dataset = NewsDatasetV2.__new__(NewsDatasetV2)
+        dataset = cls.__new__(cls)
         with open(path + "/parameters.json", "r") as f:
             data = json.load(f)
             dataset.history_size = data["history_size"]
             dataset.padding_value = data["padding_value"]
             dataset.max_labels = data["max_labels"]
             dataset.max_categories = data["max_categories"]
+            dataset.max_sentiment_labels = data["max_sentiment_labels"]
             dataset.test_mode = data["test_mode"]
 
         dataset.lookup_matrix = Dataset.load_from_disk(
@@ -420,9 +430,15 @@ class NewsDatasetV2(TorchDataset):
             self.articles.lazy()
             .with_columns(
                 pl.col(DEFAULT_CATEGORY_STR_COL)
-                .cast(pl.Categorical)
+                .cast(pl.Categorical("lexical"))
                 .to_physical()
-                .alias(DEFAULT_CATEGORY_COL)
+                .cast(pl.UInt8)
+                .alias(DEFAULT_CATEGORY_COL),
+                pl.col(DEFAULT_SENTIMENT_LABEL_COL)
+                .cast(pl.Categorical("lexical"))
+                .to_physical()
+                .cast(pl.UInt8)
+                .alias(DEFAULT_SENTIMENT_LABEL_COL),
             )
             .collect()
         )
@@ -433,20 +449,33 @@ class NewsDatasetV2(TorchDataset):
             truncation=True,
             padding=True,
         )
+        
+        # Hardcode remove padding
         tokens["input_ids"][0][0] = 0
-        tokens["input_ids"][0][1] = 0 
+        tokens["input_ids"][0][1] = 0
 
         tokens["attention_mask"][0][0] = 0
         tokens["attention_mask"][0][1] = 0
 
         # Create the lookup matrix
-        self.lookup_matrix = Dataset.from_dict(tokens).add_column(
-            DEFAULT_CATEGORY_COL,
-            [0] + self.articles[DEFAULT_CATEGORY_COL].cast(pl.UInt8).to_list(),
+        self.lookup_matrix = (
+            Dataset.from_dict(tokens)
+            .add_column(
+                DEFAULT_CATEGORY_COL,
+                [0] + self.articles[DEFAULT_CATEGORY_COL].to_list(),
+            )
+            .add_column(
+                DEFAULT_SENTIMENT_LABEL_COL,
+                [0] + self.articles[DEFAULT_SENTIMENT_LABEL_COL].to_list(),
+            )
         )
+
         self.lookup_matrix = self.lookup_matrix.flatten_indices().with_format("torch")
 
         self.max_categories = self.lookup_matrix[DEFAULT_CATEGORY_COL].max().item() + 1
+        self.max_sentiment_labels = (
+            self.lookup_matrix[DEFAULT_SENTIMENT_LABEL_COL].max().item() + 1
+        )
         self.article_id_to_idx = {
             k: i
             for i, k in enumerate([0] + self.articles[DEFAULT_ARTICLE_ID_COL].to_list())

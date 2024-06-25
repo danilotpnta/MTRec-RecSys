@@ -1,12 +1,15 @@
 import torch
 from ebrec.evaluation.metrics_protocols import (
     AucScore,
-    F1Score,
     LogLossScore,
     MetricEvaluator,
     MrrScore,
     NdcgScore,
-    RootMeanSquaredError,
+)
+
+from ebrec.utils._constants import (
+    DEFAULT_CATEGORY_COL,
+    DEFAULT_SENTIMENT_LABEL_COL
 )
 
 from transformers import AutoTokenizer, BertModel
@@ -76,10 +79,19 @@ class BERTMultitaskRecommender(LightningModule):
     """
 
     def __init__(
-        self, epochs=10, lr=1e-3, wd=0.0, steps_per_epoch=None, n_categories=5, **kwargs
+        self,
+        epochs=10,
+        lr=1e-3,
+        wd=0.0,
+        steps_per_epoch=None,
+        n_categories=5,
+        sentiment_labels=3,
+        **kwargs,
     ):
         super().__init__()
-        self.automatic_optimization = not kwargs.get("use_gradient_surgery", False) # surgery must be explicit
+        self.automatic_optimization = not kwargs.get(
+            "use_gradient_surgery", False
+        )  # surgery must be explicit
         print("automatic optimization:", self.automatic_optimization)
         self.save_hyperparameters(ignore="embeddings")
         self.predictions = []
@@ -100,6 +112,10 @@ class BERTMultitaskRecommender(LightningModule):
 
         self.category_encoder = CategoryEncoder(
             self.bert.config.hidden_size, n_categories=n_categories
+        )
+
+        self.sentiment_encoder = CategoryEncoder(
+            self.bert.config.hidden_size, n_categories=sentiment_labels
         )
 
         self.metric_evaluator = MetricEvaluator(
@@ -170,7 +186,7 @@ class BERTMultitaskRecommender(LightningModule):
             },
         }
 
-    def forward(self, history, candidates, calculate_category=False):
+    def forward(self, history, candidates, calculate_aux=False):
         """
         LEGEND:
         B - batch size (keep in mind we use an unusual mini-batch approach)
@@ -198,7 +214,11 @@ class BERTMultitaskRecommender(LightningModule):
             batch_size * hist_size, seq_len
         )
         history = (
-            self.bert(**history)
+            self.bert(
+                input_ids=history["input_ids"],
+                attention_mask=history["attention_mask"],
+                token_type_ids=history["token_type_ids"],
+            )
             .last_hidden_state[:, 0, :]
             .view(batch_size, hist_size, -1)
         )
@@ -214,7 +234,11 @@ class BERTMultitaskRecommender(LightningModule):
             batch_size * cand_size, seq_len
         )
         candidates = (
-            self.bert(**candidates)
+            self.bert(
+                input_ids=candidates["input_ids"],
+                attention_mask=candidates["attention_mask"],
+                token_type_ids=candidates["token_type_ids"],
+            )
             .last_hidden_state[:, 0, :]
             .view(batch_size, cand_size, -1)
         )
@@ -228,9 +252,11 @@ class BERTMultitaskRecommender(LightningModule):
             # F.normalize(user_embedding.unsqueeze(-1), dim=1),
         )
 
-        if calculate_category:
-            return scores.squeeze(-1), self.category_encoder(
-                history.view(batch_size * hist_size, -1)
+        if calculate_aux:
+            return (
+                scores.squeeze(-1),
+                self.category_encoder(history.view(batch_size * hist_size, -1)),
+                self.sentiment_encoder(history.view(batch_size * hist_size, -1)),
             )
         return scores.squeeze(-1)
 
@@ -238,24 +264,36 @@ class BERTMultitaskRecommender(LightningModule):
         # News Ranking Loss
         history, candidates, labels = batch
 
-        categories = history.pop("category")
-        _ = candidates.pop("category")
+        categories = history.pop(DEFAULT_CATEGORY_COL)
+        sentiments = history.pop(DEFAULT_SENTIMENT_LABEL_COL)
+
+        scores, category_scores, sentiment_scores = self(
+            history, candidates, calculate_aux=True
+        )
+        news_ranking_loss = self.criterion(scores, labels)
+
         categories = (
             F.one_hot(categories.view(-1, 1), num_classes=self.hparams.n_categories)
             .squeeze()
             .float()
         )
-
-        scores, category_scores = self(history, candidates, calculate_category=True)
-
-        news_ranking_loss = self.criterion(scores, labels)
         category_loss = F.cross_entropy(
             category_scores.view(-1, self.hparams.n_categories), categories
+        )
+
+        sentiments = (
+            F.one_hot(sentiments.view(-1, 1), num_classes=self.hparams.sentiment_labels)
+            .squeeze()
+            .float()
+        )
+        sentiment_loss = F.cross_entropy(
+            sentiment_scores.view(-1, self.hparams.n_categories), categories
         )
 
         return {
             "news_ranking_loss": news_ranking_loss,
             "category_loss": category_loss,
+            "sentiment_loss": sentiment_loss,
             "scores": scores,
             "labels": labels,
         }
@@ -264,17 +302,16 @@ class BERTMultitaskRecommender(LightningModule):
         loss = self.compute_loss(batch)
 
         news_ranking_loss = loss["news_ranking_loss"]
+        category_loss = loss["category_loss"]
+        sentiment_loss = loss["sentiment_loss"]
+        aux_loss = 0.3 * (category_loss + sentiment_loss)
 
-        loss = news_ranking_loss
-
-        # NOTE: Above, news_ranking_loss should be summed with category_loss. This is NOT adhering to the original paper.
+        # NOTE: news_ranking_loss should be summed with category_loss in order to adhere to the original paper.
+        loss = news_ranking_loss + aux_loss
 
         # Gradient Surgery
         # ================
         if not self.automatic_optimization:
-            category_loss = loss["category_loss"]
-            #
-            aux_loss = 0.3 * category_loss
             optimizer = self.optimizers()
             optimizer.zero_grad()
 
@@ -283,11 +320,12 @@ class BERTMultitaskRecommender(LightningModule):
 
             scheduler = self.lr_schedulers()
             scheduler.step()
-            self.log("train/category_loss", category_loss)
         # ================
 
         self.log("train/loss", loss, prog_bar=True)
         self.log("train/news_ranking_loss", news_ranking_loss)
+        self.log("train/category_loss", category_loss)
+        self.log("train/sentiment_loss", sentiment_loss)
 
         return loss
 
