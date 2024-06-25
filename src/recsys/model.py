@@ -302,12 +302,12 @@ class BERTMultitaskRecommender(LightningModule):
         loss = self.compute_loss(batch)
 
         news_ranking_loss = loss["news_ranking_loss"]
-        category_loss = loss["category_loss"]
-        sentiment_loss = loss["sentiment_loss"]
-        aux_loss = 0.3 * (category_loss + sentiment_loss)
+        #category_loss = loss["category_loss"]
+        #sentiment_loss = loss["sentiment_loss"]
+        #aux_loss = 0.3 * (category_loss + sentiment_loss)
 
         # NOTE: news_ranking_loss should be summed with category_loss in order to adhere to the original paper.
-        loss = news_ranking_loss + aux_loss
+        loss = news_ranking_loss #+ aux_loss
 
         # Gradient Surgery
         # ================
