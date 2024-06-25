@@ -598,6 +598,7 @@ class NewsDataModule(LightningDataModule):
         embeddings: Literal[
             "xlm-roberta-base", "bert-base-cased", "word2vec", "contrastive_vector"
         ] = "xlm-roberta-base",
+        custom_embeddings: str = None,
     ):
         super().__init__()
         self.tokenizer = tokenizer
@@ -614,6 +615,7 @@ class NewsDataModule(LightningDataModule):
         )
         self.dataset = dataset
         self.embeddings = embeddings
+        self.custom_embeddings = custom_embeddings
 
         self.dataset_type = NewsDataset if dataset_type == "v1" else NewsDatasetV2
         self.collate_fn = None if dataset_type == "v1" else collate_fn
@@ -632,6 +634,10 @@ class NewsDataModule(LightningDataModule):
             os.remove(filename)
         else:
             self.data_path = savefolder
+
+        if self.custom_embeddings:
+            self.embeddings_path = self.custom_embeddings
+            return
 
         # Download the embeddings
         embeddings_url = CHALLENGE_DATASET[self.embeddings]
