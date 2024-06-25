@@ -166,3 +166,4 @@ data
 runs
 lightning_logs
 *.out
+checkpoints

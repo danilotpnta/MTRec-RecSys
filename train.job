@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu_mig
 # Apparently we are now charged for 2 GPUs automatically, so might as well. Change this to 1 if model training errors arise.
 #SBATCH --gpus=1
 #SBATCH --gpus-per-node=1
@@ -30,5 +30,5 @@ export HF_DATASETS_IN_MEMORY_MAX_SIZE=118719476736 # 120GB
 export HF_DATASETS_CACHE=/scratch-local/$(whoami)
 python -m src.recsys.train \
     --data $HF_DATASETS_CACHE \
-    --dataset small --epochs 30 --bs 16 --lr 2e-5 --use_lora
+    --dataset small --epochs 2 --bs 32 --lr 2e-5 --use_lora --precision bf16 --load_from_checkpoint /home/scur1595/MTRec-RecSys/checkpoints/epoch=09-step=142000.ckpt
     # --dataset demo --epochs 1 --bs 512 --lr 2e-5 --use_precomputed_embedding
