@@ -5,11 +5,16 @@ import random
 from lightning_fabric.utilities.types import Optimizable
 
 
-class PCGrad(Optimizable):
+class PCGrad(Optimizable, torch.optim.Optimizer):
     def __init__(self, optimizer, reduction='mean'):
         self._optim, self._reduction = optimizer, reduction
         return
 
+
+    def __getattr__(self, name):
+        """Delegate attribute access to the wrapped object."""
+        return getattr(self._optim, name)
+    
     @property
     def optimizer(self):
         return self._optim
