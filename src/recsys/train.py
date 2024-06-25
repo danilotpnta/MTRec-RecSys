@@ -67,6 +67,8 @@ def main():
         save_top_k=2,
         every_n_train_steps=1000,
         save_weights_only=False,
+        monitor='validation/loss',   
+        mode='min'
     )
     trainer = Trainer(
         max_epochs=args.epochs,
