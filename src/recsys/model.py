@@ -287,7 +287,7 @@ class BERTMultitaskRecommender(LightningModule):
             .float()
         )
         sentiment_loss = F.cross_entropy(
-            sentiment_scores.view(-1, self.hparams.n_categories), categories
+            sentiment_scores.view(-1, self.hparams.sentiment_labels), sentiments
         )
 
         return {
