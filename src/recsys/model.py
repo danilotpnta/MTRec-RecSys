@@ -324,8 +324,8 @@ class BERTMultitaskRecommender(LightningModule):
 
         self.log("train/loss", loss, prog_bar=True)
         self.log("train/news_ranking_loss", news_ranking_loss)
-        self.log("train/category_loss", category_loss)
-        self.log("train/sentiment_loss", sentiment_loss)
+        #self.log("train/category_loss", category_loss)
+        #self.log("train/sentiment_loss", sentiment_loss)
 
         return loss
 
