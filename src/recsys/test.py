@@ -1,15 +1,22 @@
 import argparse
 import pickle
+from itertools import batched
 
-from numpy import require
+import numpy as np
+import polars as pl
+from ebrec.utils._constants import (
+    DEFAULT_ARTICLE_ID_COL,
+    DEFAULT_IMPRESSION_ID_COL,
+    DEFAULT_TITLE_COL,
+)
+from ebrec.utils._python import write_submission_file
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.profilers import AdvancedProfiler
 from recsys.dataset import NewsDataModule
 from recsys.model import BERTMultitaskRecommender, MultitaskRecommender
-from ebrec.utils._python import write_submission_file
-from ebrec.utils._constants import DEFAULT_IMPRESSION_ID_COL
+
 
 def arg_list():
     parser = argparse.ArgumentParser(description="Training arguments")
@@ -80,14 +87,57 @@ def main():
         strategy="ddp_find_unused_parameters_true",
     )
 
-
     if not args.use_precomputed_embeddings:
-        model = BERTMultitaskRecommender.load_from_checkpoint(
-            args.load_from_checkpoint
-        )
+        model = BERTMultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
     else:
         model = MultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
 
+    model.bert.eval()
+    articles = datamodule.test_dataset.articles
+    articles[DEFAULT_TITLE_COL]
+    article_ids = datamodule.test_dataset.articles[DEFAULT_ARTICLE_ID_COL]
+
+    res = []
+    for batch in batched(articles[DEFAULT_TITLE_COL], args.bs):
+        tokens = datamodule.tokenizer(
+            batch,
+            padding=True,
+            truncation=True,
+            max_length=args.max_length,
+            return_tensors="pt",
+        )
+        output = model.bert(**tokens)
+        tokens = output.last_hidden_state[:, 0, :]
+        tokens = tokens.detach().cpu().numpy()
+        res.append(tokens)
+
+    res = np.concatenate(res, axis=0)
+    res = res.tolist()
+
+    df = article_ids.to_frame().with_columns(
+        pl.Series("article_embeddings", res, dtype=pl.List(pl.Float32))
+    )
+
+    savepath = datamodule.data_path + "/article_embeddings.parquet"
+    df.write_parquet(savepath)
+
+    datamodule = NewsDataModule(
+        args.data_path,
+        batch_size=args.bs,
+        dataset=args.dataset,
+        embeddings=args.embeddings_type,
+        num_workers=args.num_workers,
+        max_length=args.max_length,
+        padding_value=0,
+        dataset_type="v1",  # only this
+        custom_embedidngs=savepath,
+    )
+
+    user_encoder = model.user_encoder
+    model = MultitaskRecommender(
+        model.bert.config.hidden_size, embeddings=datamodule.test_dataset.lookup_matrix
+    )
+    model.user_encoder = user_encoder
 
     # Make predictions on the test set
     res = trainer.test(model, datamodule=datamodule)
@@ -98,7 +148,11 @@ def main():
 
     scores, preds = zip(*res)
 
-    write_submission_file(datamodule.test_dataset.behaviors[DEFAULT_IMPRESSION_ID_COL], list(preds), rm_file=False)
+    write_submission_file(
+        datamodule.test_dataset.behaviors[DEFAULT_IMPRESSION_ID_COL],
+        list(preds),
+        rm_file=False,
+    )
 
 
 if __name__ == "__main__":
