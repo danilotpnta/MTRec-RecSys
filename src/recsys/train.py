@@ -43,6 +43,8 @@ def arg_list():
         choices=("bf16", "bf16-mixed", "32", "16", "16-mixed"),
     )
     parser.add_argument("--use_lora", action="store_true")
+    parser.add_argument("--disable_category", action="store_true")
+    parser.add_argument("--disable_sentiment", action="store_true")
     return parser.parse_args()
 
 
@@ -105,6 +107,8 @@ def main():
                 n_categories=datamodule.train_dataset.max_categories,
                 sentiment_labels=datamodule.train_dataset.max_sentiment_labels,
                 use_lora=args.use_lora,
+                disable_category=args.disable_category,
+                disable_sentiment=args.disable_sentiment,
             )
     else:
         if args.load_from_checkpoint:

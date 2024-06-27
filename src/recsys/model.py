@@ -7,10 +7,7 @@ from ebrec.evaluation.metrics_protocols import (
     NdcgScore,
 )
 
-from ebrec.utils._constants import (
-    DEFAULT_CATEGORY_COL,
-    DEFAULT_SENTIMENT_LABEL_COL
-)
+from ebrec.utils._constants import DEFAULT_CATEGORY_COL, DEFAULT_SENTIMENT_LABEL_COL
 
 from transformers import AutoTokenizer, BertModel
 from torchmetrics import Accuracy, AUROC
@@ -118,16 +115,18 @@ class BERTMultitaskRecommender(LightningModule):
             self.bert.config.hidden_size, n_categories=sentiment_labels
         )
 
+        self.disable_category = kwargs.get("disable_category", False)
+        self.disable_sentiment = kwargs.get("disable_sentiment", False)
+
         self.metric_evaluator = MetricEvaluator(
             self.labels,
             self.predictions,
             metric_functions=[
-                # AucScore(),
+                AucScore(),
                 MrrScore(),
-                NdcgScore(k=10),
                 NdcgScore(k=5),
+                NdcgScore(k=10),
                 LogLossScore(),
-                # RootMeanSquaredError(),
                 # F1Score(),
             ],
         )
@@ -139,22 +138,6 @@ class BERTMultitaskRecommender(LightningModule):
         # See: https://pytorch.org/docs/stable/generated/torch.nn.BCEWithLogitsLoss.html
         # Would be good if we can find a rationale for this in the literature.
         # self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.ones(1) * 4)
-
-        # # Question: Will it understand this dimensionality? A: Probably yes.
-        # [0, 0, 0, 0, 1]
-        # [0, 0, 0, 0, 1]
-        # [0, 0, 0, 0, 1]
-        # [0, 0, 0, 0, 1]
-        # [0, 0, 0, 0, 1]
-        # [0, 0, 0, 0, 1]
-
-        # [0.1, 0.2, 0.3, 0.4, 0.5]
-        # [0.1, 0.2, 0.3, 0.4, 0.5]
-        # [0.1, 0.2, 0.3, 0.4, 0.5]
-        # [0.1, 0.2, 0.3, 0.4, 0.5]
-        # [0.1, 0.2, 0.3, 0.4, 0.5]
-
-        # # Question: Is pos weight correct? TODO: Experiment with both.
         self.criterion = nn.CrossEntropyLoss()
         # self.criterion = NLLLoss()
 
@@ -268,27 +251,34 @@ class BERTMultitaskRecommender(LightningModule):
         sentiments = history.pop(DEFAULT_SENTIMENT_LABEL_COL)
 
         scores, category_scores, sentiment_scores = self(
-            history, candidates, calculate_aux=True
+            history, candidates, calculate_aux=not self.disable_category or not self.disable_sentiment
         )
         news_ranking_loss = self.criterion(scores, labels)
 
-        categories = (
-            F.one_hot(categories.view(-1, 1), num_classes=self.hparams.n_categories)
-            .squeeze()
-            .float()
-        )
-        category_loss = F.cross_entropy(
-            category_scores.view(-1, self.hparams.n_categories), categories
-        )
+        if not self.disable_category:
+            categories = (
+                F.one_hot(categories.view(-1, 1), num_classes=self.hparams.n_categories)
+                .squeeze()
+                .float()
+            )
+            category_loss = F.cross_entropy(
+                category_scores.view(-1, self.hparams.n_categories), categories
+            )
+        else: # Avoid computing the loss
+            category_loss = torch.tensor(0.0, device=self.device)
 
-        sentiments = (
-            F.one_hot(sentiments.view(-1, 1), num_classes=self.hparams.sentiment_labels)
-            .squeeze()
-            .float()
-        )
-        sentiment_loss = F.cross_entropy(
-            sentiment_scores.view(-1, self.hparams.sentiment_labels), sentiments
-        )
+
+        if not self.disable_sentiment:    
+            sentiments = (
+                F.one_hot(sentiments.view(-1, 1), num_classes=self.hparams.sentiment_labels)
+                .squeeze()
+                .float()
+            )
+            sentiment_loss = F.cross_entropy(
+                sentiment_scores.view(-1, self.hparams.sentiment_labels), sentiments
+            )
+        else: # Avoid computing the loss
+            sentiment_loss = torch.tensor(0.0, device=self.device)
 
         return {
             "news_ranking_loss": news_ranking_loss,
@@ -428,7 +418,8 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         scores = torch.bmm(
             # F.normalize(candidates, dim=-1),
             # F.normalize(user_embedding.unsqueeze(-1), dim=1),
-            candidates, user_embedding.unsqueeze(-1)
+            candidates,
+            user_embedding.unsqueeze(-1),
         )
 
         scores = scores.squeeze(-1)
@@ -441,11 +432,6 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         scores = self(history, candidates)
         news_ranking_loss = self.criterion(scores, labels)
 
-        # category_scores = self.category_encoder(history)
-        # category = torch.nn.functional.one_hot(
-        # category, num_classes=self.hparams.n_categories
-        # ).float()
-        # category_loss = self.category_loss(category_scores, category)
 
         category_loss = torch.tensor(0.0, device=self.device)
         return {
@@ -454,22 +440,20 @@ class MultitaskRecommender(BERTMultitaskRecommender):
             "scores": scores,
             "labels": labels,
         }
-        
+
     def on_test_epoch_start(self):
         super().on_test_epoch_start()
         self.res = []
-        
+
     def on_test_epoch_end(self):
         super().on_test_epoch_end()
         return self.res
-        
-    def test_step(self, batch, batch_idx):
 
-        for hist, cand in batch:            
-            
+    def test_step(self, batch, batch_idx):
+        for hist, cand in batch:
             hist.unsqueeze_(0)
             cand.unsqueeze_(0)
-            scores = self(hist,cand)
+            scores = self(hist, cand)
 
             indices = torch.argsort(scores, descending=True) + 1
             self.res.append((scores.squeeze().tolist(), indices.squeeze().tolist()))

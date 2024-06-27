@@ -1,3 +1,15 @@
+# Description: This file contains the implementation of the PCGrad optimizer.
+# Code courtesy of Wei-Cheng Tseng
+# Source:
+# https://github.com/WeiChengTseng/Pytorch-PCGrad
+# 
+# @misc{Pytorch-PCGrad,
+#   author = {Wei-Cheng Tseng},
+#   title = {WeiChengTseng/Pytorch-PCGrad},
+#   url = {https://github.com/WeiChengTseng/Pytorch-PCGrad.git},
+#   year = {2020}
+# }
+
 import torch
 import numpy as np
 import copy
