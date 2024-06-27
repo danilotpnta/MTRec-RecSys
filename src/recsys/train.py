@@ -67,7 +67,7 @@ def main():
     lr_monitor = LearningRateMonitor(logging_interval="step")
     profiler = AdvancedProfiler(filename="profiler_results.txt")
     checkpoint_callback = ModelCheckpoint(
-        dirpath="checkpoints",
+        dirpath=f"checkpoints/{args.dataset}-bs{args.bs}-{args.use_lora and 'use_lora'}-{args.seed}-lr{args.lr}",
         filename="{epoch:02d}-{step:02d}",
         save_top_k=-1,
         every_n_train_steps=2000,

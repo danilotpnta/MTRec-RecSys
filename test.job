@@ -7,7 +7,7 @@
 #SBATCH --job-name=RECSYS
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=9
-#SBATCH --time=06:59:00
+#SBATCH --time=01:59:00
 #SBATCH --mem=60GB
 #SBATCH --output=/scratch-shared/recsys/%A.out
 
@@ -26,9 +26,10 @@ source .venv/bin/activate
 # pip install pytorch_lightning
 # pip install tensorboard 
 
+
 export HF_DATASETS_IN_MEMORY_MAX_SIZE=118719476736 # 120GB
-export HF_DATASETS_CACHE=/scratch-local/$(whoami)
-python -m src.recsys.train \
-    --data $HF_DATASETS_CACHE \
-    --dataset small --epochs 10 --bs 16 --lr 2e-5 --precision bf16-mixed --use_lora 
+export HF_DATASETS_CACHE=/scratch-local/$(whoami)-2
+
+python -m src.recsys.test \
+    --dataset small --epochs 30 --bs 16 --load_from_checkpoint /home/scur1595/MTRec-RecSys/checkpoints/small-bs16-use_lora-42-lr2e-05/epoch=09-step=144000.ckpt
     # --dataset demo --epochs 1 --bs 512 --lr 2e-5 --use_precomputed_embedding

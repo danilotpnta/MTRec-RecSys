@@ -358,8 +358,10 @@ class BERTMultitaskRecommender(LightningModule):
     def test_step(self, batch, batch_idx):
         res = []
 
-        histories, candidates = batch
-        for hist, cand in zip(histories, candidates):
+        for hist, cand in batch:
+            for key in hist:
+                hist[key].unsqueeze_(0)
+                cand[key].unsqueeze_(0)
             scores = self(hist, cand)
             indices = torch.argsort(scores, descending=True) + 1
             res.append((scores.tolist(), indices.tolist()))
@@ -424,8 +426,9 @@ class MultitaskRecommender(BERTMultitaskRecommender):
         candidates = self.embedding(candidates)
         # Normalization in order to reduce the variance of the dot product
         scores = torch.bmm(
-            F.normalize(candidates, dim=-1),
-            F.normalize(user_embedding.unsqueeze(-1), dim=1),
+            # F.normalize(candidates, dim=-1),
+            # F.normalize(user_embedding.unsqueeze(-1), dim=1),
+            candidates, user_embedding.unsqueeze(-1)
         )
 
         scores = scores.squeeze(-1)
@@ -451,6 +454,25 @@ class MultitaskRecommender(BERTMultitaskRecommender):
             "scores": scores,
             "labels": labels,
         }
+        
+    def on_test_epoch_start(self):
+        super().on_test_epoch_start()
+        self.res = []
+        
+    def on_test_epoch_end(self):
+        super().on_test_epoch_end()
+        return self.res
+        
+    def test_step(self, batch, batch_idx):
+
+        for hist, cand in batch:            
+            
+            hist.unsqueeze_(0)
+            cand.unsqueeze_(0)
+            scores = self(hist,cand)
+
+            indices = torch.argsort(scores, descending=True) + 1
+            self.res.append((scores.squeeze().tolist(), indices.squeeze().tolist()))
 
 
 '''

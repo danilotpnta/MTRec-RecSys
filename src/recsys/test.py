@@ -1,6 +1,5 @@
 import argparse
 import pickle
-from itertools import batched
 
 import numpy as np
 import polars as pl
@@ -16,6 +15,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.profilers import AdvancedProfiler
 from recsys.dataset import NewsDataModule
 from recsys.model import BERTMultitaskRecommender, MultitaskRecommender
+from recsys.utils.functions import batched
 
 
 def arg_list():
@@ -93,33 +93,48 @@ def main():
         model = MultitaskRecommender.load_from_checkpoint(args.load_from_checkpoint)
 
     model.bert.eval()
-    articles = datamodule.test_dataset.articles
-    articles[DEFAULT_TITLE_COL]
-    article_ids = datamodule.test_dataset.articles[DEFAULT_ARTICLE_ID_COL]
 
-    res = []
-    for batch in batched(articles[DEFAULT_TITLE_COL], args.bs):
-        tokens = datamodule.tokenizer(
-            batch,
-            padding=True,
-            truncation=True,
-            max_length=args.max_length,
-            return_tensors="pt",
-        )
-        output = model.bert(**tokens)
-        tokens = output.last_hidden_state[:, 0, :]
-        tokens = tokens.detach().cpu().numpy()
-        res.append(tokens)
+    datamodule._download_test()
 
-    res = np.concatenate(res, axis=0)
-    res = res.tolist()
+    import os
 
-    df = article_ids.to_frame().with_columns(
-        pl.Series("article_embeddings", res, dtype=pl.List(pl.Float32))
+    article_path = os.path.join(
+        datamodule.data_path,
+        args.load_from_checkpoint.split("/")[-2],
+        "articles.parquet",
     )
 
-    savepath = datamodule.data_path + "/article_embeddings.parquet"
-    df.write_parquet(savepath)
+    if not os.path.exists(article_path):
+        os.makedirs(article_path.rpartition("/")[0], exist_ok=True)
+        _articles = pl.read_parquet(datamodule.data_path + "/articles.parquet")
+
+        articles = _articles[DEFAULT_TITLE_COL]
+        article_ids = _articles[DEFAULT_ARTICLE_ID_COL]
+
+        res = []
+        from tqdm import tqdm
+
+        for batch in tqdm(batched(articles, args.bs), total=len(articles)//args.bs):
+            tokens = datamodule.tokenizer(
+                batch,
+                padding=True,
+                truncation=True,
+                max_length=args.max_length,
+                return_tensors="pt",
+            )
+            output = model.bert(**tokens.to("cuda"))
+            tokens = output.last_hidden_state[:, 0, :]
+            tokens = tokens.detach().cpu().numpy()
+            res.append(tokens)
+
+        res = np.concatenate(res, axis=0)
+        res = res.tolist()
+
+        df = article_ids.to_frame().with_columns(
+            pl.Series("article_embeddings", res, dtype=pl.List(pl.Float32))
+        )
+
+        df.write_parquet(article_path)
 
     datamodule = NewsDataModule(
         args.data_path,
@@ -130,8 +145,10 @@ def main():
         max_length=args.max_length,
         padding_value=0,
         dataset_type="v1",  # only this
-        custom_embedidngs=savepath,
+        custom_embeddings=article_path,
     )
+
+    datamodule.setup('test')
 
     user_encoder = model.user_encoder
     model = MultitaskRecommender(
@@ -140,7 +157,8 @@ def main():
     model.user_encoder = user_encoder
 
     # Make predictions on the test set
-    res = trainer.test(model, datamodule=datamodule)
+    trainer.test(model, datamodule=datamodule)
+    res = model.res
 
     # Failsafe in case something goes majorly wrong
     with open("saved_results.pkl", "wb") as f:

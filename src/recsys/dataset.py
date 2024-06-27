@@ -88,6 +88,8 @@ class NewsDataset(TorchDataset):
                 DEFAULT_SUBTITLE_COL,  # subtitle
                 DEFAULT_TOPICS_COL,  # topics
                 DEFAULT_CATEGORY_STR_COL,  # category_str
+                DEFAULT_SENTIMENT_LABEL_COL,  # sentiment_label
+
             ]
         ).collect()
 
@@ -164,6 +166,7 @@ class NewsDataset(TorchDataset):
         )
 
     def _prepare_articles(self):
+        print(self.articles.head())
         self.articles = (
             self.articles.lazy()
             .with_columns(
@@ -756,7 +759,7 @@ class NewsDataModule(LightningDataModule):
                         max_labels=self.max_labels,
                         padding_value=self.padding_value,
                         max_length=self.max_length,
-                        embeddings_path=self.embeddings_path,
+                        embeddings_path=self.custom_embeddings or self.embeddings_path,
                         test_mode=True,
                     )
                     os.makedirs(save_dir, exist_ok=True)
@@ -784,12 +787,12 @@ class NewsDataModule(LightningDataModule):
 
     def test_dataloader(self):
         return torch.utils.data.DataLoader(
-            self.val_dataset,
+            self.test_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=True,
-            collate_fn=self.collate_fn,
+            collate_fn=lambda x: x,
         )
 
 
